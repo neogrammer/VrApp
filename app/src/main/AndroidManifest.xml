@@ -29,6 +29,11 @@
     <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
     <uses-feature android:name="oculus.software.handtracking" android:required="false" />
     <uses-feature android:name="wave.feature.handtracking" android:required="false" />
+
+    <uses-permission android:name="horizonos.permission.USE_ANCHOR_API" />
+    <uses-permission android:name="com.oculus.permission.USE_SCENE" />
+    <uses-feature android:name="com.oculus.feature.RENDER_MODEL" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:fullBackupContent="false"

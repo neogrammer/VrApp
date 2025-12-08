@@ -58,10 +58,17 @@ set(HEADERS
         "../Common/OpenXRDebugUtils.h"
         "../Common/OpenXRHelper.h"
         "app/src/main/cpp/audio_engine.h"
+        "app/src/main/cpp/third_party/cgltf.h"
 )
 
 set(ES_GLSL_SHADERS "../Shaders/VertexShader_GLES.glsl"
         "../Shaders/PixelShader_GLES.glsl"
+        "../Shaders/MeshVertex_GLES.glsl"
+        "../Shaders/MeshPixel_GLES.glsl"
+        "../Shaders/DebugDrumVertex_GLES.glsl"
+        "../Shaders/DebugDrumFragment_GLES.glsl"
+        "../Shaders/DrumDebugRawVertex_GLES.glsl"
+        "../Shaders/DrumDebugRawFragment_GLES.glsl"
 )
 
 
@@ -78,6 +85,7 @@ target_include_directories(
         "${openxr_SOURCE_DIR}/external/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/src/main/cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/app/src/main/cpp/vrcore"
+        "${CMAKE_CURRENT_SOURCE_DIR}/app/src/main/cpp/third_party"
         "${openxr_SOURCE_DIR}/include"
         "${openxr_SOURCE_DIR}/src/ext/include"
 )
