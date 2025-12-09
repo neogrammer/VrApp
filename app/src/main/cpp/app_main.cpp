@@ -1,2375 +1,3 @@
-//#include "audio_engine.h"
-//#include "vrcore/vr_instance.hpp"
-//// include xr linear algebra for XrVector and XrMatrix classes.
-//#include <xr_linear_algebra.h>
-//
-//#define CGLTF_IMPLEMENTATION
-//#include "third_party/cgltf.h"
-//
-//// Declare some useful operators for vectors:
-//XrVector3f operator-(XrVector3f a, XrVector3f b) {
-//    return {a.x - b.x, a.y - b.y, a.z - b.z};
-//}
-//XrVector3f operator*(XrVector3f a, float b) {
-//    return {a.x * b, a.y * b, a.z * b};
-//}
-//
-//XrVector3f operator+(XrVector3f a, XrVector3f b) {
-//    return {a.x + b.x, a.y + b.y, a.z + b.z};
-//}
-//
-//float Dot(XrVector3f a, XrVector3f b) {
-//    return a.x*b.x + a.y*b.y + a.z*b.z;
-//}
-//
-//float Length(XrVector3f v) {
-//    return sqrtf(Dot(v, v));
-//}
-//
-//XrVector3f Normalize(XrVector3f v) {
-//    float len = Length(v);
-//    if (len <= 1e-6f) return {0,0,0};
-//    float inv = 1.0f / len;
-//    return {v.x * inv, v.y * inv, v.z * inv};
-//}
-//
-//// rotate vector v by quaternion q (q * v * q^-1)
-//XrVector3f Rotate(const XrQuaternionf& q, XrVector3f v) {
-//    XrVector3f qv{q.x, q.y, q.z};
-//    float s = q.w;
-//
-//    XrVector3f cross{
-//            qv.y * v.z - qv.z * v.y,
-//            qv.z * v.x - qv.x * v.z,
-//            qv.x * v.y - qv.y * v.x
-//    };
-//
-//    XrVector3f term1 = v * (s*s - Dot(qv, qv));
-//    XrVector3f term2 = qv * (2.0f * Dot(qv, v));
-//    XrVector3f term3 = cross * (2.0f * s);
-//
-//    return term1 + term2 + term3;
-//}
-//
-//XrQuaternionf LookRotation(XrVector3f dir, XrVector3f up) {
-//    dir = Normalize(dir);
-//    up  = Normalize(up);
-//
-//    XrVector3f y = dir;
-//    XrVector3f x{
-//            up.y * y.z - up.z * y.y,
-//            up.z * y.x - up.x * y.z,
-//            up.x * y.y - up.y * y.x
-//    };
-//    x = Normalize(x);
-//    XrVector3f z{
-//            x.y * y.z - x.z * y.y,
-//            x.z * y.x - x.x * y.z,
-//            x.x * y.y - x.y * y.x
-//    };
-//
-//    float m00=x.x, m01=y.x, m02=z.x;
-//    float m10=x.y, m11=y.y, m12=z.y;
-//    float m20=x.z, m21=y.z, m22=z.z;
-//
-//    float tr = m00 + m11 + m22;
-//    XrQuaternionf q{};
-//    if (tr > 0.0f) {
-//        float S = sqrtf(tr + 1.0f) * 2.0f;
-//        q.w = 0.25f * S;
-//        q.x = (m21 - m12) / S;
-//        q.y = (m02 - m20) / S;
-//        q.z = (m10 - m01) / S;
-//    } else {
-//        q = {0,0,0,1};
-//    }
-//    return q;
-//}
-//
-//XrQuaternionf Mul(const XrQuaternionf& a, const XrQuaternionf& b)
-//{
-//    XrQuaternionf r;
-//    r.x = a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y;
-//    r.y = a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x;
-//    r.z = a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w;
-//    r.w = a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z;
-//    return r;
-//}
-//
-//// Include <algorithm> for std::min and max
-//#include <algorithm>
-//// A deque is used to track the blocks to draw.
-//#include <deque>
-//// Random numbers for colorful blocks
-//#include <random>
-//static std::uniform_real_distribution<float> pseudorandom_distribution(0, 1.f);
-//static std::mt19937 pseudo_random_generator;
-//
-//PFN_xrCreateHandTrackerEXT xrCreateHandTrackerEXT = nullptr;
-//PFN_xrDestroyHandTrackerEXT xrDestroyHandTrackerEXT = nullptr;
-//PFN_xrLocateHandJointsEXT xrLocateHandJointsEXT = nullptr;
-//
-//class VrApp
-//{
-//    // --- Existing mesh pipeline for GLB meshes ---
-//    void* m_meshVertexShader   = nullptr;
-//    void* m_meshFragmentShader = nullptr;
-//    void* m_meshPipeline       = nullptr;
-//
-//    struct Mesh {
-//        void* vertexBuffer = nullptr;
-//        void* indexBuffer  = nullptr;
-//        int   indexCount   = 0;
-//    };
-//
-//    Mesh m_meshDrumsetMain;
-//    Mesh m_meshHiHatTop;
-//    Mesh m_meshDrumstick;
-//    std::vector<float>    m_drumDebugVertices;  // interleaved [x,y,z,1,u,v]
-//    std::vector<uint32_t> m_drumDebugIndices;
-//    // DEBUG DRUM: isolated mesh + minimal pipeline
-//    void* m_debugDrumVertexShader   = nullptr;
-//    void* m_debugDrumFragmentShader = nullptr;
-//    void* m_debugDrumPipeline       = nullptr;
-//    Mesh  m_drumDebugMesh;  // separate VB/IB copy of the drumset
-//
-//    AudioEngine m_audioEngine;
-//
-//    VrInstance vrInstance = {};
-//    XrDebugUtilsMessengerEXT m_debugUtilsMessenger = {};
-//    XrFormFactor m_formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
-//    XrSystemId m_systemID = {};
-//    XrSystemProperties m_systemProperties = {XR_TYPE_SYSTEM_PROPERTIES};
-//    GraphicsAPI_Type m_apiType = UNKNOWN;
-//    XrSessionState m_sessionState = XR_SESSION_STATE_UNKNOWN;
-//
-//    XrTime m_lastPredictedDisplayTime = 0;
-//
-//    XrPassthroughFB      m_passthrough      = XR_NULL_HANDLE;
-//    XrPassthroughLayerFB m_passthroughLayer = XR_NULL_HANDLE;
-//
-//    bool m_applicationRunning = true;
-//    bool m_sessionRunning = false;
-//
-//    std::vector<XrViewConfigurationType> m_applicationViewConfigurations = {XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_MONO};
-//    std::vector<XrViewConfigurationType> m_viewConfigurations;
-//    XrViewConfigurationType m_viewConfiguration = XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM;
-//    std::vector<XrViewConfigurationView> m_viewConfigurationViews;
-//
-//    struct SwapchainInfo {
-//        XrSwapchain swapchain = XR_NULL_HANDLE;
-//        int64_t swapchainFormat = 0;
-//        std::vector<void *> imageViews;
-//    };
-//    std::vector<SwapchainInfo> m_colorSwapchainInfos = {};
-//    std::vector<SwapchainInfo> m_depthSwapchainInfos = {};
-//
-//    std::vector<XrEnvironmentBlendMode> m_applicationEnvironmentBlendModes = {
-//            XR_ENVIRONMENT_BLEND_MODE_OPAQUE,
-//            XR_ENVIRONMENT_BLEND_MODE_ADDITIVE,
-//            XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND
-//    };
-//    std::vector<XrEnvironmentBlendMode> m_environmentBlendModes = {};
-//    XrEnvironmentBlendMode m_environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_MAX_ENUM;
-//
-//    XrSpace m_localSpace = XR_NULL_HANDLE;
-//    struct RenderLayerInfo {
-//        XrTime predictedDisplayTime;
-//        std::vector<XrCompositionLayerBaseHeader *> layers;
-//        XrCompositionLayerProjection layerProjection = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
-//        std::vector<XrCompositionLayerProjectionView> layerProjectionViews;
-//        std::vector<XrCompositionLayerDepthInfoKHR> layerDepthInfos;
-//        XrCompositionLayerPassthroughFB passthroughLayer = {XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB};
-//    };
-//
-//    float m_viewHeightM = 1.5f;
-//
-//    void *m_vertexBuffer = nullptr;
-//    void *m_indexBuffer = nullptr;
-//    void *m_uniformBuffer_Camera = nullptr;
-//    void *m_uniformBuffer_Normals = nullptr;
-//    void *m_vertexShader = nullptr, *m_fragmentShader = nullptr;
-//    void *m_pipeline = nullptr;
-//
-//    // An instance of a 3d colored block.
-//    struct Block {
-//        XrPosef pose;
-//        XrVector3f scale;
-//        XrVector3f color;
-//    };
-//
-//    static constexpr int MAX_DRUMS = 8;
-//
-//    struct Drum {
-//        XrVector3f center;   // world-space in LOCAL space frame
-//        XrVector3f normal;   // usually (0,1,0)
-//        float      radius;   // trigger radius for hit detection
-//        int        soundId;  // used later when you play audio
-//    };
-//
-//    struct Stick {
-//        XrPosef    pose;              // pose in world
-//        int        heldBy;            // -1 = free, 0 = left hand, 1 = right hand
-//        float      length;            // meters (model-dependent)
-//        XrVector3f tipLocal;          // tip position in local coords
-//        float      lastHeight[MAX_DRUMS]; // previous frame Y-height over each drum
-//        bool       active;            // stick currently available
-//
-//        // Bounce state
-//        float      bounceTime;        // seconds remaining in bounce
-//        XrVector3f bounceDir;         // direction of bounce (drum normal)
-//        XrQuaternionf localRot;
-//    };
-//
-//    Drum  m_drums[MAX_DRUMS];
-//    int   m_drumCount = 0;
-//
-//    Stick m_sticks[2];
-//
-//    // The list of block instances.
-//    std::deque<Block> m_blocks;
-//    // Don't let too many m_blocks get created.
-//    const size_t m_maxBlockCount = 100;
-//    // Which block, if any, is being held by each of the user's hands or controllers.
-//    int m_grabbedBlock[2] = {-1, -1};
-//    // Which block, if any, is nearby to each hand or controller.
-//    int m_nearBlock[2] = {-1, -1};
-//
-//    XrActionSet m_actionSet;
-//    // An action for grabbing blocks, and an action to change the color of a block.
-//    XrAction m_grabCubeAction, m_spawnCubeAction, m_changeColorAction;
-//    // The realtime states of these actions.
-//    XrActionStateFloat m_grabState[2] = {{XR_TYPE_ACTION_STATE_FLOAT}, {XR_TYPE_ACTION_STATE_FLOAT}};
-//    XrActionStateBoolean m_changeColorState[2] = {{XR_TYPE_ACTION_STATE_BOOLEAN}, {XR_TYPE_ACTION_STATE_BOOLEAN}};
-//    XrActionStateBoolean m_spawnCubeState = {XR_TYPE_ACTION_STATE_BOOLEAN};
-//    // The haptic output action for grabbing cubes.
-//    XrAction m_buzzAction;
-//    // The current haptic output value for each controller.
-//    float m_buzz[2] = {0, 0};
-//    // The action for getting the hand or controller position and orientation.
-//    XrAction m_palmPoseAction;
-//
-//    XrAction m_kickButtonAction;
-//    XrAction m_kickTriggerAction;
-//
-//    XrActionStateBoolean m_kickStateButton  = { XR_TYPE_ACTION_STATE_BOOLEAN };
-//    XrActionStateFloat   m_kickStateTrigger = { XR_TYPE_ACTION_STATE_FLOAT };
-//
-//    XrAction m_hiHatButtonAction;
-//    XrAction m_hiHatTriggerAction;
-//
-//    XrActionStateBoolean m_hiHatPedalStateButton  = { XR_TYPE_ACTION_STATE_BOOLEAN };
-//    XrActionStateFloat   m_hiHatPedalStateTrigger = { XR_TYPE_ACTION_STATE_FLOAT };
-//
-//    // hi-hat logical state (open by default)
-//    bool m_hiHatClosed = false;
-//
-//    // The XrPaths for left and right hand hands or controllers.
-//    XrPath m_handPaths[2] = {0, 0};
-//    // The spaces that represents the two hand poses.
-//    XrSpace m_handPoseSpace[2];
-//    XrActionStatePose m_handPoseState[2] = {{XR_TYPE_ACTION_STATE_POSE}, {XR_TYPE_ACTION_STATE_POSE}};
-//    // The current poses obtained from the XrSpaces.
-//    XrPosef m_handPose[2] = {
-//            {{1.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -m_viewHeightM}},
-//            {{1.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -m_viewHeightM}}};
-//
-//    // The hand tracking properties, namely, is it supported?
-//    XrSystemHandTrackingPropertiesEXT handTrackingSystemProperties = {XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT};
-//    // Each tracked hand has a live list of joint locations.
-//    struct Hand {
-//        XrHandJointLocationEXT m_jointLocations[XR_HAND_JOINT_COUNT_EXT];
-//        XrHandTrackerEXT m_handTracker = 0;
-//    };
-//    Hand m_hands[2];
-//
-//    bool handtracked[2] = {false, false};
-//
-//    bool m_drawDrumColliders = true; // in VrApp
-//
-//public:
-//    static android_app *androidApp;
-//    struct AndroidAppState
-//    {
-//        ANativeWindow *nativeWindow = nullptr;
-//        bool resumed = false;
-//    };
-//    static AndroidAppState androidAppState;
-//    static void AndroidAppHandleCmd(struct android_app *app, int32_t cmd);
-//    std::unique_ptr<GraphicsAPI> m_graphicsAPI = nullptr;
-//    XrSession m_session = XR_NULL_HANDLE;
-//
-//public:
-//    explicit VrApp(GraphicsAPI_Type apiType)
-//            : m_apiType{apiType}
-//    {
-//        if (!CheckGraphicsAPI_TypeIsValidForPlatform(m_apiType))
-//        {
-//            std::cout << "ERROR: The provided Graphics API is not valid for this platform." << std::endl;
-//            DEBUG_BREAK;
-//        }
-//    }
-//    ~VrApp() = default;
-//    void Run()
-//    {
-//        vrInstance.create();
-//
-//        OPENVR_CHECK(xrGetInstanceProcAddr(vrInstance.get(), "xrCreateHandTrackerEXT", (PFN_xrVoidFunction *)&xrCreateHandTrackerEXT), "Failed to get xrCreateHandTrackerEXT.");
-//        OPENVR_CHECK(xrGetInstanceProcAddr(vrInstance.get(), "xrDestroyHandTrackerEXT", (PFN_xrVoidFunction *)&xrDestroyHandTrackerEXT), "Failed to get xrDestroyHandTrackerEXT.");
-//        OPENVR_CHECK(xrGetInstanceProcAddr(vrInstance.get(), "xrLocateHandJointsEXT", (PFN_xrVoidFunction *)&xrLocateHandJointsEXT), "Failed to get xrLocateHandJointsEXT.");
-//
-//        vrInstance.LoadPassthroughFunctions();
-//
-//        CreateDebugMessenger();
-//
-//        vrInstance.getProperties();
-//
-//        GetSystemID();
-//        CreateActionSet();
-//        SuggestBindings();
-//        GetViewConfigurationViews();
-//        GetEnvironmentBlendModes();
-//
-//        CreateSession();
-//        vrInstance.InitPassthrough(&m_session, XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB, &m_passthrough, &m_passthroughLayer);
-//        CreateActionPoses();
-//        AttachActionSet();
-//        if (handTrackingSystemProperties.supportsHandTracking) {
-//            CreateHandTrackers();
-//        }
-//        CreateReferenceSpace();
-//        CreateSwapchains();
-//        CreateResources();
-//        while (m_applicationRunning) {
-//            PollSystemEvents();
-//            PollEvents();
-//            if (m_sessionRunning) {
-//                RenderFrame();
-//            }
-//        }
-//
-//        DestroyResources();
-//        DestroySwapchains();
-//        DestroyReferenceSpace();
-//        DestroySession();
-//        if (vrInstance.isCreated())
-//        {
-//            DestroyDebugMessenger();
-//            vrInstance.destroy();
-//        }
-//    }
-//private:
-//
-//    bool LoadMeshFromGLB(const char* assetPath, Mesh& outMesh)
-//    {
-//        AAssetManager* assetMgr = androidApp->activity->assetManager;
-//
-//        // 1) Open asset
-//        AAsset* asset = AAssetManager_open(assetMgr, assetPath, AASSET_MODE_BUFFER);
-//        if (!asset) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "Failed to open GLB asset: %s", assetPath);
-//            return false;
-//        }
-//
-//        size_t fileSize = AAsset_getLength(asset);
-//       // const void* fileData = AAsset_getBuffer(asset);
-//        if (fileSize == 0) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "GLB asset empty or null: %s", assetPath);
-//            AAsset_close(asset);
-//            return false;
-//        }
-//
-//        // 2) Read whole file into our own buffer
-//        std::vector<uint8_t> glbData(fileSize);
-//        int64_t readBytes = AAsset_read(asset, glbData.data(), fileSize);
-//        AAsset_close(asset);  // <-- now safe to close, we own the bytes
-//
-//        if (readBytes != (int64_t)fileSize) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "Failed to read whole GLB (%s), read=%lld size=%zu",
-//                                assetPath, (long long)readBytes, fileSize);
-//            return false;
-//        }
-//
-//
-//        // 2) Parse glTF
-//        cgltf_options options{};
-//        cgltf_data* data = nullptr;
-//
-//        cgltf_result res = cgltf_parse(&options,
-//                                       glbData.data(),
-//                                       glbData.size(),
-//                                       &data);
-//        if (res != cgltf_result_success) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "cgltf_parse failed for %s", assetPath);
-//            return false;
-//        }
-//
-//        res = cgltf_load_buffers(&options, data, nullptr);
-//        if (res != cgltf_result_success) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "cgltf_load_buffers failed for %s", assetPath);
-//            cgltf_free(data);
-//            return false;
-//        }
-//
-//
-//
-//        if (data->meshes_count == 0) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "No meshes in %s", assetPath);
-//            cgltf_free(data);
-//            return false;
-//        }
-//
-//        // Use first mesh / first primitive for now
-//        cgltf_mesh& mesh = data->meshes[0];
-//        if (mesh.primitives_count == 0) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "No primitives in first mesh of %s", assetPath);
-//            cgltf_free(data);
-//            return false;
-//        }
-//
-//        cgltf_primitive& prim = mesh.primitives[0];
-//
-//        __android_log_print(
-//                ANDROID_LOG_INFO, "VrApp",
-//                "%s: mesh[0] prim[0] type=%d, vertices=%zu, hasIndices=%s",
-//                assetPath,
-//                prim.type,
-//                prim.attributes[0].data->count,
-//                prim.indices ? "yes" : "no"
-//        );
-//
-//        // 3) POSITION attribute
-//        cgltf_attribute* posAttr = nullptr;
-//        for (size_t i = 0; i < prim.attributes_count; ++i) {
-//            if (prim.attributes[i].type == cgltf_attribute_type_position) {
-//                posAttr = &prim.attributes[i];
-//                break;
-//            }
-//        }
-//        if (!posAttr) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "No POSITION attribute in %s", assetPath);
-//            cgltf_free(data);
-//            return false;
-//        }
-//
-//        cgltf_accessor* posAcc = posAttr->data;
-//        if (posAcc->component_type != cgltf_component_type_r_32f ||
-//            posAcc->type           != cgltf_type_vec3) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "POSITION is not float vec3 in %s", assetPath);
-//            cgltf_free(data);
-//            return false;
-//        }
-//
-//        const size_t vertexCount = posAcc->count;
-//
-//        // 4) TEXCOORD_0 (optional)
-//        cgltf_attribute* uvAttr = nullptr;
-//        for (size_t i = 0; i < prim.attributes_count; ++i) {
-//            if (prim.attributes[i].type == cgltf_attribute_type_texcoord &&
-//                prim.attributes[i].index == 0) {
-//                uvAttr = &prim.attributes[i];
-//                break;
-//            }
-//        }
-//
-//        cgltf_accessor* uvAcc = nullptr;
-//        if (uvAttr) {
-//            uvAcc = uvAttr->data;
-//            if (uvAcc->component_type != cgltf_component_type_r_32f ||
-//                uvAcc->type           != cgltf_type_vec2) {
-//                __android_log_print(ANDROID_LOG_WARN, "VrApp",
-//                                    "TEXCOORD_0 is not float vec2 in %s, ignoring UVs",
-//                                    assetPath);
-//                uvAcc = nullptr;
-//            }
-//        }
-//
-//        // 5) Build interleaved vertex buffer: [x,y,z,1,u,v]
-//        constexpr int floatsPerVertex = 6;
-//        std::vector<float> vertices(vertexCount * floatsPerVertex);
-//
-//        for (size_t i = 0; i < vertexCount; ++i) {
-//            float p[3];
-//            cgltf_accessor_read_float(posAcc, i, p, 3);
-//
-//            float uv[2] = {0.0f, 0.0f};
-//            if (uvAcc) {
-//                cgltf_accessor_read_float(uvAcc, i, uv, 2);
-//            }
-//
-//            const size_t base = i * floatsPerVertex;
-//            vertices[base + 0] = p[0];
-//            vertices[base + 1] = p[1];
-//            vertices[base + 2] = p[2];
-//            vertices[base + 3] = 1.0f;
-//            vertices[base + 4] = uv[0];
-//            vertices[base + 5] = uv[1];
-//        }
-//
-//        // 6) Indices
-//        std::vector<uint32_t> indices;
-//
-//        if (prim.indices) {
-//            cgltf_accessor* idxAcc = prim.indices;
-//            indices.resize(idxAcc->count);
-//            for (size_t i = 0; i < idxAcc->count; ++i) {
-//                uint32_t idx = 0;
-//                cgltf_accessor_read_uint(idxAcc, i, &idx, 1);
-//                indices[i] = idx;
-//            }
-//        } else {
-//            indices.resize(vertexCount);
-//            for (uint32_t i = 0; i < vertexCount; ++i)
-//                indices[i] = i;
-//        }
-//
-//        // 7) Convert triangle_fan / triangle_strip → triangle_list
-//        if (prim.type == cgltf_primitive_type_triangle_fan) {
-//            if (indices.size() >= 3) {
-//                std::vector<uint32_t> fan = indices;
-//                indices.clear();
-//                for (size_t i = 1; i + 1 < fan.size(); ++i) {
-//                    indices.push_back(fan[0]);
-//                    indices.push_back(fan[i]);
-//                    indices.push_back(fan[i + 1]);
-//                }
-//            }
-//        } else if (prim.type == cgltf_primitive_type_triangle_strip) {
-//            if (indices.size() >= 3) {
-//                std::vector<uint32_t> strip = indices;
-//                indices.clear();
-//                for (size_t i = 0; i + 2 < strip.size(); ++i) {
-//                    if ((i & 1) == 0) {
-//                        indices.push_back(strip[i]);
-//                        indices.push_back(strip[i + 1]);
-//                        indices.push_back(strip[i + 2]);
-//                    } else {
-//                        indices.push_back(strip[i + 1]);
-//                        indices.push_back(strip[i]);
-//                        indices.push_back(strip[i + 2]);
-//                    }
-//                }
-//            }
-//        }
-//        // At this point we always draw TRIANGLE_LIST.
-//
-//        // 8) Create GPU buffers
-//        void* vb = m_graphicsAPI->CreateBuffer({
-//                                                       GraphicsAPI::BufferCreateInfo::Type::VERTEX,
-//                                                       sizeof(float) * floatsPerVertex,
-//                                                       vertices.size() * sizeof(float),
-//                                                       vertices.data()
-//                                               });
-//
-//        void* ib = m_graphicsAPI->CreateBuffer({
-//                                                       GraphicsAPI::BufferCreateInfo::Type::INDEX,
-//                                                       sizeof(uint32_t),
-//                                                       indices.size() * sizeof(uint32_t),
-//                                                       indices.data()
-//                                               });
-//
-//        if (!vb || !ib) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "Failed to create buffers for %s", assetPath);
-//            if (vb) m_graphicsAPI->DestroyBuffer(vb);
-//            if (ib) m_graphicsAPI->DestroyBuffer(ib);
-//            cgltf_free(data);
-//            return false;
-//        }
-//
-//        outMesh.vertexBuffer = vb;
-//        outMesh.indexBuffer  = ib;
-//        outMesh.indexCount   = static_cast<int>(indices.size());
-//
-//        // --- DEBUG: if this is the main drumset, keep CPU copies & log ---
-//        if (assetPath && strstr(assetPath, "drumset_main.glb") != nullptr) {
-//            m_drumDebugVertices = vertices;
-//            m_drumDebugIndices  = indices;
-//
-//            __android_log_print(ANDROID_LOG_INFO, "VrApp",
-//                                "DrumsetMain loaded: verts=%zu idx=%zu",
-//                                m_drumDebugVertices.size() / 6,
-//                                m_drumDebugIndices.size());
-//
-//            // Log first few verts/indices so we can see if they change across runs
-//            size_t vPrint = std::min<size_t>(m_drumDebugVertices.size(), 6 * 4); // up to 4 verts
-//            for (size_t i = 0; i < vPrint; i += 6) {
-//                __android_log_print(ANDROID_LOG_INFO, "VrApp",
-//                                    "Drum V%zu: pos=(%.3f, %.3f, %.3f) uv=(%.3f, %.3f)",
-//                                    i / 6,
-//                                    m_drumDebugVertices[i + 0],
-//                                    m_drumDebugVertices[i + 1],
-//                                    m_drumDebugVertices[i + 2],
-//                                    m_drumDebugVertices[i + 4],
-//                                    m_drumDebugVertices[i + 5]);
-//            }
-//
-//            size_t iPrint = std::min<size_t>(m_drumDebugIndices.size(), 18); // first 6 tris
-//            std::string idxLine = "Drum idx:";
-//            for (size_t i = 0; i < iPrint; ++i) {
-//                char buf[32];
-//                snprintf(buf, sizeof(buf), " %u", m_drumDebugIndices[i]);
-//                idxLine += buf;
-//            }
-//            __android_log_print(ANDROID_LOG_INFO, "VrApp", "%s", idxLine.c_str());
-//        }
-//
-//        float minX =  1e9f, minY =  1e9f, minZ =  1e9f;
-//        float maxX = -1e9f, maxY = -1e9f, maxZ = -1e9f;
-//        for (size_t i = 0; i + 5 < m_drumDebugVertices.size(); i += 6) {
-//            float x = m_drumDebugVertices[i + 0];
-//            float y = m_drumDebugVertices[i + 1];
-//            float z = m_drumDebugVertices[i + 2];
-//            minX = std::min(minX, x);
-//            minY = std::min(minY, y);
-//            minZ = std::min(minZ, z);
-//            maxX = std::max(maxX, x);
-//            maxY = std::max(maxY, y);
-//            maxZ = std::max(maxZ, z);
-//        }
-//        __android_log_print(ANDROID_LOG_INFO, "VrApp",
-//                            "Drum CAPTURE bounds: min(%.3f, %.3f, %.3f) max(%.3f, %.3f, %.3f)",
-//                            minX, minY, minZ, maxX, maxY, maxZ);
-//
-//        cgltf_free(data);
-//        return true;
-//    }
-//
-//    void InitDrumsAndSticks()
-//    {
-//        m_drumCount = 0;
-//
-//        auto addDrum = [&](XrVector3f center, float radius, int soundId) {
-//            if (m_drumCount >= MAX_DRUMS) return;
-//            Drum& d = m_drums[m_drumCount++];
-//            d.center = center;
-//            d.normal = {0.0f, 1.0f, 0.0f}; // flat, facing up
-//            d.radius = radius;
-//            d.soundId = soundId;
-//        };
-//
-//        const float padSideApprox = 0.5f;
-//
-//        const float forwardAll  = padSideApprox;
-//        const float tomBack     = padSideApprox * 0.2f;
-//        const float tomSide     = padSideApprox * 0.1f;
-//
-//        XrVector3f snarePos = {
-//                -0.1f,
-//                -0.39f,
-//                -0.75f + forwardAll
-//        };
-//
-//        XrVector3f floorPos = {
-//                0.40f,
-//                -0.43f,
-//                -0.75f + forwardAll
-//        };
-//
-//        XrVector3f hiTomPos = {
-//                0.1f - tomSide,
-//                -0.28f,
-//                -0.9f + forwardAll - tomBack
-//        };
-//
-//        XrVector3f midTomPos = {
-//                0.25f + tomSide,
-//                -0.19f,
-//                -0.910f + forwardAll - tomBack
-//        };
-//
-//        XrVector3f hiHatPos = {
-//                -0.30f,
-//                -0.30f,
-//                -0.85f + forwardAll - tomBack * 0.5f
-//        };
-//
-//        XrVector3f crashPos = {
-//                0.00f,
-//                -0.18f,
-//                -1.00f + forwardAll - tomBack
-//        };
-//
-//        XrVector3f ridePos = {
-//                0.55f,
-//                -0.25f,
-//                -0.95f + forwardAll - tomBack * 0.5f
-//        };
-//
-//        addDrum(snarePos,  0.28f, SOUND_SNARE);
-//        addDrum(hiTomPos,  0.26f, SOUND_HI_TOM);
-//        addDrum(midTomPos, 0.27f, SOUND_MID_TOM);
-//        addDrum(floorPos,  0.32f, SOUND_FLOOR_TOM);
-//
-//        addDrum(hiHatPos,  0.25f, SOUND_HIHAT_CLOSED);
-//        addDrum(crashPos,  0.30f, SOUND_CRASH);
-//        addDrum(ridePos,   0.30f, SOUND_RIDE);
-//
-//        for (int i = 0; i < 2; ++i) {
-//            Stick& s = m_sticks[i];
-//
-//            s.heldBy = -1;
-//            s.length = 0.35f;
-//
-//            s.tipLocal = {0.0f, s.length * 0.75f, 0.0f};
-//
-//            s.pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
-//            s.pose.position = {
-//                    (i == 0 ? -0.15f : 0.15f),
-//                    -0.3f,
-//                    -0.3f
-//            };
-//
-//            for (int d = 0; d < MAX_DRUMS; ++d) {
-//                s.lastHeight[d] = -0.3f;
-//            }
-//            s.active     = true;
-//            s.bounceTime = 0.0f;
-//            s.bounceDir  = {0.0f, 0.0f, 0.0f};
-//
-//            const float angleDeg = -120.0f;
-//            const float angle    = angleDeg * 3.14159265f / 180.0f;
-//            const float half     = 0.5f * angle;
-//            const float sAng     = sinf(half);
-//            const float cAng     = cosf(half);
-//
-//            s.localRot = { sAng, 0.0f, 0.0f, cAng };
-//        }
-//    }
-//
-//    XrVector3f StickTipWorld(const Stick& s) const
-//    {
-//        return s.pose.position + Rotate(s.pose.orientation, s.tipLocal);
-//    }
-//
-//    void AutoDropStick(Stick& s)
-//    {
-//        s.heldBy = -1;
-//        s.pose.position    = { 0.25f, 0.0f, 0.3f };
-//        s.pose.orientation = {0,0,0,1};
-//        for (int d = 0; d < MAX_DRUMS; ++d) {
-//            s.lastHeight[d] = 0.0f;
-//        }
-//
-//        s.bounceTime = 0.0f;
-//        s.bounceDir  = {0.0f, 0.0f, 0.0f};
-//    }
-//
-//    void UpdateSticks(float dt)
-//    {
-//        const float grabRadius = 0.15f;
-//
-//        for (int i = 0; i < 2; ++i) {
-//            Stick& s = m_sticks[i];
-//
-//            if (s.heldBy == 0 || s.heldBy == 1) {
-//                int hand = s.heldBy;
-//                if (m_handPoseState[hand].isActive) {
-//                    XrPosef handPose = m_handPose[hand];
-//
-//                    s.pose.position    = handPose.position;
-//                    s.pose.orientation = Mul(handPose.orientation, s.localRot);
-//                } else {
-//                    AutoDropStick(s);
-//                }
-//            } else {
-//                for (int hand = 0; hand < 2; ++hand) {
-//                    if (!m_handPoseState[hand].isActive) continue;
-//                    if (!m_grabState[hand].isActive ||
-//                        m_grabState[hand].currentState < 0.5f) continue;
-//
-//                    XrVector3f diff = m_handPose[hand].position - s.pose.position;
-//                    float dist = Length(diff);
-//                    if (dist < grabRadius) {
-//                        s.heldBy = hand;
-//                        break;
-//                    }
-//                }
-//            }
-//
-//            if (s.bounceDir.x != 0.0f || s.bounceDir.y != 0.0f || s.bounceDir.z != 0.0f) {
-//                const float totalBounce = 0.30f;
-//                const float maxAmp      = 0.03f;
-//
-//                s.bounceTime += dt;
-//
-//                float tNorm = s.bounceTime / totalBounce;
-//                if (tNorm >= 1.0f) {
-//                    s.bounceTime = 0.0f;
-//                    s.bounceDir  = {0.0f, 0.0f, 0.0f};
-//                } else {
-//                    float offset = sinf(tNorm * 3.14159265f) * maxAmp;
-//                    s.pose.position = s.pose.position + s.bounceDir * offset;
-//                }
-//            }
-//        }
-//    }
-//
-//    bool TestStickHitDrum(Stick& s, int drumIndex, float dt)
-//    {
-//        if (!s.active) return false;
-//        if (drumIndex < 0 || drumIndex >= m_drumCount) return false;
-//
-//        Drum& d = m_drums[drumIndex];
-//
-//        XrVector3f tip = StickTipWorld(s);
-//
-//        const float headOffset = 0.03f * 0.5f;
-//        XrVector3f planePoint  = d.center + d.normal * headOffset;
-//
-//        XrVector3f toTip  = tip - planePoint;
-//
-//        float height = Dot(toTip, d.normal);
-//
-//        XrVector3f radial = toTip - d.normal * height;
-//        float      r      = Length(radial);
-//
-//        float lastH = s.lastHeight[drumIndex];
-//
-//        float collisionRadius = d.radius * 0.5f;
-//        bool inside   = (r <= collisionRadius);
-//        bool crossing = (height <= 0.0f && lastH > 0.0f);
-//
-//        if (inside && crossing) {
-//            float v = (lastH - height) / std::max(dt, 0.0001f);
-//
-//            if (v > 0.5f) {
-//                int soundToPlay = d.soundId;
-//
-//                if (d.soundId == SOUND_HIHAT_CLOSED) {
-//                    soundToPlay = m_hiHatClosed ? SOUND_HIHAT_CLOSED : SOUND_HIHAT_OPEN;
-//                }
-//
-//                m_audioEngine.playDrumSound(soundToPlay);
-//
-//                s.bounceTime = 0.0f;
-//                s.bounceDir  = d.normal;
-//            }
-//        }
-//
-//        if (inside && height < 0.0f) {
-//            float penetration = height;
-//            s.pose.position = s.pose.position - d.normal * penetration;
-//        }
-//
-//        s.lastHeight[drumIndex] = height;
-//        return inside && crossing;
-//    }
-//
-//    void UpdateDrumHits(float dt)
-//    {
-//        for (int sIdx = 0; sIdx < 2; ++sIdx) {
-//            Stick& s = m_sticks[sIdx];
-//            if (!s.active) continue;
-//
-//            for (int d = 0; d < m_drumCount; ++d) {
-//                TestStickHitDrum(s, d, dt);
-//            }
-//        }
-//    }
-//
-//    void CreateDebugMessenger()
-//    {
-//        if (IsStringInVector(vrInstance.getActiveExtensions(), XR_EXT_DEBUG_UTILS_EXTENSION_NAME))
-//        {
-//            m_debugUtilsMessenger = CreateOpenXRDebugUtilsMessenger(vrInstance.get());
-//        }
-//    }
-//    void DestroyDebugMessenger()
-//    {
-//        if (m_debugUtilsMessenger != XR_NULL_HANDLE)
-//        {
-//            DestroyOpenXRDebugUtilsMessenger(vrInstance.get(), m_debugUtilsMessenger);
-//        }
-//    }
-//
-//    void CreateSession()
-//    {
-//        XrSessionCreateInfo sessionCI{XR_TYPE_SESSION_CREATE_INFO};
-//        m_graphicsAPI = std::make_unique<GraphicsAPI_OpenGL_ES>(vrInstance.get(), m_systemID);
-//        sessionCI.next = m_graphicsAPI->GetGraphicsBinding();
-//        sessionCI.createFlags = 0;
-//        sessionCI.systemId = m_systemID;
-//
-//        OPENVR_CHECK(xrCreateSession(vrInstance.get(), &sessionCI, &m_session), "Failed to create Session.");
-//    }
-//    void DestroySession()
-//    {
-//        if (xrDestroyHandTrackerEXT) {
-//            for (int i = 0; i < 2; ++i) {
-//                if (m_hands[i].m_handTracker != XR_NULL_HANDLE) {
-//                    xrDestroyHandTrackerEXT(m_hands[i].m_handTracker);
-//                    m_hands[i].m_handTracker = XR_NULL_HANDLE;
-//                }
-//            }
-//        }
-//
-//        if (m_passthroughLayer != XR_NULL_HANDLE && vrInstance.xrDestroyPassthroughLayerFB_) {
-//            vrInstance.xrDestroyPassthroughLayerFB_(m_passthroughLayer);
-//            m_passthroughLayer = XR_NULL_HANDLE;
-//        }
-//
-//        if (m_passthrough != XR_NULL_HANDLE && vrInstance.xrDestroyPassthroughFB_) {
-//            vrInstance.xrDestroyPassthroughFB_(m_passthrough);
-//            m_passthrough = XR_NULL_HANDLE;
-//        }
-//
-//        if (m_session != XR_NULL_HANDLE) {
-//            OPENVR_CHECK(xrDestroySession(m_session), "Failed to destroy Session.");
-//            m_session = XR_NULL_HANDLE;
-//        }
-//    }
-//
-//    void GetSystemID()
-//    {
-//        XrSystemGetInfo systemGI{XR_TYPE_SYSTEM_GET_INFO};
-//        systemGI.formFactor = m_formFactor;
-//        OPENVR_CHECK(xrGetSystem(vrInstance.get(), &systemGI, &m_systemID), "Failed to get SystemID.");
-//        m_systemProperties.next = &handTrackingSystemProperties;
-//        OPENVR_CHECK(xrGetSystemProperties(vrInstance.get(), m_systemID, &m_systemProperties), "Failed to get SystemProperties.");
-//    }
-//
-//    XrPath CreateXrPath(const char *path_string) {
-//        XrPath xrPath;
-//        OPENVR_CHECK(xrStringToPath(vrInstance.get(), path_string, &xrPath), "Failed to create XrPath from string.");
-//        return xrPath;
-//    }
-//    std::string FromXrPath(XrPath path) {
-//        uint32_t strl;
-//        char text[XR_MAX_PATH_LENGTH];
-//        XrResult res;
-//        res = xrPathToString(vrInstance.get(), path, XR_MAX_PATH_LENGTH, &strl, text);
-//        std::string str;
-//        if (res == XR_SUCCESS) {
-//            str = text;
-//        } else {
-//            OPENVR_CHECK(res, "Failed to retrieve path.");
-//        }
-//        return str;
-//    }
-//
-//    void CreateActionSet() {
-//        XrActionSetCreateInfo actionSetCI{XR_TYPE_ACTION_SET_CREATE_INFO};
-//        strncpy(actionSetCI.actionSetName, "vrapp-actionset",
-//                XR_MAX_ACTION_SET_NAME_SIZE);
-//        strncpy(actionSetCI.localizedActionSetName, "VrApp ActionSet",
-//                XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE);
-//        actionSetCI.priority = 0;
-//
-//        OPENVR_CHECK(xrCreateActionSet(vrInstance.get(), &actionSetCI, &m_actionSet),
-//                     "Failed to create ActionSet.");
-//
-//        auto CreateAction = [this](XrAction &xrAction, const char *name, XrActionType xrActionType, std::vector<const char *> subaction_paths = {}) -> void {
-//            XrActionCreateInfo actionCI{XR_TYPE_ACTION_CREATE_INFO};
-//            actionCI.actionType = xrActionType;
-//            std::vector<XrPath> subaction_xrpaths;
-//            for (auto p : subaction_paths) {
-//                subaction_xrpaths.push_back(CreateXrPath(p));
-//            }
-//            actionCI.countSubactionPaths = (uint32_t)subaction_xrpaths.size();
-//            actionCI.subactionPaths = subaction_xrpaths.data();
-//            strncpy(actionCI.actionName, name, XR_MAX_ACTION_NAME_SIZE);
-//            strncpy(actionCI.localizedActionName, name, XR_MAX_LOCALIZED_ACTION_NAME_SIZE);
-//            OPENVR_CHECK(xrCreateAction(m_actionSet, &actionCI, &xrAction), "Failed to create Action.");
-//        };
-//
-//        CreateAction(m_grabCubeAction, "grab-cube", XR_ACTION_TYPE_FLOAT_INPUT, {"/user/hand/left", "/user/hand/right"});
-//        CreateAction(m_spawnCubeAction, "spawn-cube", XR_ACTION_TYPE_BOOLEAN_INPUT);
-//        CreateAction(m_changeColorAction, "change-color", XR_ACTION_TYPE_BOOLEAN_INPUT, {"/user/hand/left", "/user/hand/right"});
-//        CreateAction(m_palmPoseAction, "palm-pose", XR_ACTION_TYPE_POSE_INPUT, {"/user/hand/left", "/user/hand/right"});
-//        CreateAction(m_buzzAction, "buzz", XR_ACTION_TYPE_VIBRATION_OUTPUT, {"/user/hand/left", "/user/hand/right"});
-//
-//        CreateAction(m_kickButtonAction,
-//                     "kick-button",
-//                     XR_ACTION_TYPE_BOOLEAN_INPUT,
-//                     { "/user/hand/right" });
-//
-//        CreateAction(m_kickTriggerAction,
-//                     "kick-trigger",
-//                     XR_ACTION_TYPE_FLOAT_INPUT,
-//                     { "/user/hand/right" });
-//
-//        CreateAction(m_hiHatButtonAction,
-//                     "hihat-button",
-//                     XR_ACTION_TYPE_BOOLEAN_INPUT,
-//                     { "/user/hand/left" });
-//
-//        CreateAction(m_hiHatTriggerAction,
-//                     "hihat-trigger",
-//                     XR_ACTION_TYPE_FLOAT_INPUT,
-//                     { "/user/hand/left" });
-//
-//        m_handPaths[0] = CreateXrPath("/user/hand/left");
-//        m_handPaths[1] = CreateXrPath("/user/hand/right");
-//    }
-//
-//    void SuggestBindings() {
-//        auto SuggestBindings = [this](const char *profile_path,
-//                                      std::vector<XrActionSuggestedBinding> bindings) -> bool {
-//            XrInteractionProfileSuggestedBinding interactionProfileSuggestedBinding{
-//                    XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
-//            interactionProfileSuggestedBinding.interactionProfile = CreateXrPath(profile_path);
-//            interactionProfileSuggestedBinding.suggestedBindings = bindings.data();
-//            interactionProfileSuggestedBinding.countSuggestedBindings = (uint32_t) bindings.size();
-//            if (xrSuggestInteractionProfileBindings(vrInstance.get(),
-//                                                    &interactionProfileSuggestedBinding) ==
-//                XrResult::XR_SUCCESS)
-//                return true;
-//            XR_TUT_LOG("Failed to suggest bindings with " << profile_path);
-//            return false;
-//        };
-//
-//        bool any_ok = false;
-//        any_ok |= SuggestBindings("/interaction_profiles/khr/simple_controller", {
-//                {m_grabCubeAction, CreateXrPath("/user/hand/left/input/select/click")},
-//                {m_grabCubeAction, CreateXrPath("/user/hand/right/input/select/click")},
-//                {m_palmPoseAction, CreateXrPath("/user/hand/left/input/grip/pose")},
-//                {m_palmPoseAction, CreateXrPath("/user/hand/right/input/grip/pose")},
-//                {m_buzzAction,     CreateXrPath("/user/hand/left/output/haptic")},
-//                {m_buzzAction,     CreateXrPath("/user/hand/right/output/haptic")}
-//        });
-//
-//        any_ok |= SuggestBindings("/interaction_profiles/oculus/touch_controller", {
-//                {m_grabCubeAction,      CreateXrPath("/user/hand/left/input/squeeze/value")},
-//                {m_grabCubeAction,      CreateXrPath("/user/hand/right/input/squeeze/value")},
-//                {m_palmPoseAction,      CreateXrPath("/user/hand/left/input/grip/pose")},
-//                {m_palmPoseAction,      CreateXrPath("/user/hand/right/input/grip/pose")},
-//                {m_buzzAction,          CreateXrPath("/user/hand/left/output/haptic")},
-//                {m_buzzAction,          CreateXrPath("/user/hand/right/output/haptic")},
-//                {m_kickButtonAction,    CreateXrPath("/user/hand/right/input/a/click")},
-//                {m_kickTriggerAction,   CreateXrPath("/user/hand/right/input/trigger/value")},
-//                {m_hiHatButtonAction,   CreateXrPath("/user/hand/left/input/x/click")},
-//                {m_hiHatTriggerAction,  CreateXrPath("/user/hand/left/input/trigger/value")}
-//        });
-//
-//        if (!any_ok) {
-//            DEBUG_BREAK;
-//        }
-//    }
-//
-//    void CreateActionPoses() {
-//        auto CreateActionPoseSpace = [this](XrSession session, XrAction xrAction, const char *subaction_path = nullptr) -> XrSpace {
-//            XrSpace xrSpace;
-//            const XrPosef xrPoseIdentity = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
-//            XrActionSpaceCreateInfo actionSpaceCI{XR_TYPE_ACTION_SPACE_CREATE_INFO};
-//            actionSpaceCI.action = xrAction;
-//            actionSpaceCI.poseInActionSpace = xrPoseIdentity;
-//            if (subaction_path)
-//                actionSpaceCI.subactionPath = CreateXrPath(subaction_path);
-//            OPENVR_CHECK(xrCreateActionSpace(session, &actionSpaceCI, &xrSpace), "Failed to create ActionSpace.");
-//            return xrSpace;
-//        };
-//        m_handPoseSpace[0] = CreateActionPoseSpace(m_session, m_palmPoseAction, "/user/hand/left");
-//        m_handPoseSpace[1] = CreateActionPoseSpace(m_session, m_palmPoseAction, "/user/hand/right");
-//    }
-//
-//    void AttachActionSet() {
-//        XrSessionActionSetsAttachInfo actionSetAttachInfo{XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
-//        actionSetAttachInfo.countActionSets = 1;
-//        actionSetAttachInfo.actionSets = &m_actionSet;
-//        OPENVR_CHECK(xrAttachSessionActionSets(m_session, &actionSetAttachInfo), "Failed to attach ActionSet to Session.");
-//    }
-//
-//    void CreateHandTrackers() {
-//        for (int i = 0; i < 2; i++) {
-//            Hand &hand = m_hands[i];
-//            XrHandTrackerCreateInfoEXT xrHandTrackerCreateInfo = {XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT};
-//            xrHandTrackerCreateInfo.hand = i == 0 ? XR_HAND_LEFT_EXT : XR_HAND_RIGHT_EXT;
-//            xrHandTrackerCreateInfo.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
-//            OPENVR_CHECK(xrCreateHandTrackerEXT(m_session, &xrHandTrackerCreateInfo, &hand.m_handTracker), "Failed to create Hand Tracker.");
-//        }
-//    }
-//
-//    void RecordCurrentBindings() {
-//        if (m_session) {
-//            XrInteractionProfileState interactionProfile = {XR_TYPE_INTERACTION_PROFILE_STATE, 0, 0};
-//            OPENVR_CHECK(xrGetCurrentInteractionProfile(m_session, m_handPaths[0], &interactionProfile), "Failed to get profile.");
-//            if (interactionProfile.interactionProfile) {
-//                XR_TUT_LOG("user/hand/left ActiveProfile " << FromXrPath(interactionProfile.interactionProfile).c_str());
-//            }
-//            OPENVR_CHECK(xrGetCurrentInteractionProfile(m_session, m_handPaths[1], &interactionProfile), "Failed to get profile.");
-//            if (interactionProfile.interactionProfile) {
-//                XR_TUT_LOG("user/hand/right ActiveProfile " << FromXrPath(interactionProfile.interactionProfile).c_str());
-//            }
-//        }
-//    }
-//
-//    void GetViewConfigurationViews()
-//    {
-//        uint32_t viewConfigurationCount = 0;
-//        OPENVR_CHECK(xrEnumerateViewConfigurations(vrInstance.get(), m_systemID, 0, &viewConfigurationCount, nullptr), "Failed to enumerate View Configurations.");
-//        m_viewConfigurations.resize(viewConfigurationCount);
-//        OPENVR_CHECK(xrEnumerateViewConfigurations(vrInstance.get(), m_systemID, viewConfigurationCount, &viewConfigurationCount, m_viewConfigurations.data()), "Failed to enumerate View Configurations.");
-//
-//        for (const XrViewConfigurationType &viewConfiguration : m_applicationViewConfigurations) {
-//            if (std::find(m_viewConfigurations.begin(), m_viewConfigurations.end(), viewConfiguration) != m_viewConfigurations.end()) {
-//                m_viewConfiguration = viewConfiguration;
-//                break;
-//            }
-//        }
-//        if (m_viewConfiguration == XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM) {
-//            std::cerr << "Failed to find a view configuration type. Defaulting to XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO." << std::endl;
-//            m_viewConfiguration = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-//        }
-//
-//        uint32_t viewConfigurationViewCount = 0;
-//        OPENVR_CHECK(xrEnumerateViewConfigurationViews(vrInstance.get(), m_systemID, m_viewConfiguration, 0, &viewConfigurationViewCount, nullptr), "Failed to enumerate ViewConfiguration Views.");
-//        m_viewConfigurationViews.resize(viewConfigurationViewCount, {XR_TYPE_VIEW_CONFIGURATION_VIEW});
-//        OPENVR_CHECK(xrEnumerateViewConfigurationViews(vrInstance.get(), m_systemID, m_viewConfiguration, viewConfigurationViewCount, &viewConfigurationViewCount, m_viewConfigurationViews.data()), "Failed to enumerate ViewConfiguration Views.");
-//    }
-//    void CreateSwapchains()
-//    {
-//        uint32_t formatCount = 0;
-//        OPENVR_CHECK(xrEnumerateSwapchainFormats(m_session, 0, &formatCount, nullptr), "Failed to enumerate Swapchain Formats");
-//        std::vector<int64_t> formats(formatCount);
-//        OPENVR_CHECK(xrEnumerateSwapchainFormats(m_session, formatCount, &formatCount, formats.data()), "Failed to enumerate Swapchain Formats");
-//        if (m_graphicsAPI->SelectDepthSwapchainFormat(formats) == 0) {
-//            std::cerr << "Failed to find depth format for Swapchain." << std::endl;
-//            DEBUG_BREAK;
-//        }
-//
-//        m_colorSwapchainInfos.resize(m_viewConfigurationViews.size());
-//        m_depthSwapchainInfos.resize(m_viewConfigurationViews.size());
-//
-//        for (size_t i = 0; i < m_viewConfigurationViews.size(); i++) {
-//            SwapchainInfo &colorSwapchainInfo = m_colorSwapchainInfos[i];
-//            SwapchainInfo &depthSwapchainInfo = m_depthSwapchainInfos[i];
-//
-//            XrSwapchainCreateInfo swapchainCI{XR_TYPE_SWAPCHAIN_CREATE_INFO};
-//            swapchainCI.createFlags = 0;
-//            swapchainCI.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
-//            swapchainCI.format = m_graphicsAPI->SelectColorSwapchainFormat(formats);
-//            swapchainCI.sampleCount = m_viewConfigurationViews[i].recommendedSwapchainSampleCount;
-//            swapchainCI.width = m_viewConfigurationViews[i].recommendedImageRectWidth;
-//            swapchainCI.height = m_viewConfigurationViews[i].recommendedImageRectHeight;
-//            swapchainCI.faceCount = 1;
-//            swapchainCI.arraySize = 1;
-//            swapchainCI.mipCount = 1;
-//            OPENVR_CHECK(xrCreateSwapchain(m_session, &swapchainCI, &colorSwapchainInfo.swapchain), "Failed to create Color Swapchain");
-//            colorSwapchainInfo.swapchainFormat = swapchainCI.format;
-//
-//            swapchainCI.createFlags = 0;
-//            swapchainCI.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-//            swapchainCI.format = m_graphicsAPI->SelectDepthSwapchainFormat(formats);
-//            swapchainCI.sampleCount = m_viewConfigurationViews[i].recommendedSwapchainSampleCount;
-//            swapchainCI.width = m_viewConfigurationViews[i].recommendedImageRectWidth;
-//            swapchainCI.height = m_viewConfigurationViews[i].recommendedImageRectHeight;
-//            swapchainCI.faceCount = 1;
-//            swapchainCI.arraySize = 1;
-//            swapchainCI.mipCount = 1;
-//            OPENVR_CHECK(xrCreateSwapchain(m_session, &swapchainCI, &depthSwapchainInfo.swapchain), "Failed to create Depth Swapchain");
-//            depthSwapchainInfo.swapchainFormat = swapchainCI.format;
-//
-//            uint32_t colorSwapchainImageCount = 0;
-//            OPENVR_CHECK(xrEnumerateSwapchainImages(colorSwapchainInfo.swapchain, 0, &colorSwapchainImageCount, nullptr), "Failed to enumerate Color Swapchain Images.");
-//            XrSwapchainImageBaseHeader *colorSwapchainImages = m_graphicsAPI->AllocateSwapchainImageData(colorSwapchainInfo.swapchain, GraphicsAPI::SwapchainType::COLOR, colorSwapchainImageCount);
-//            OPENVR_CHECK(xrEnumerateSwapchainImages(colorSwapchainInfo.swapchain, colorSwapchainImageCount, &colorSwapchainImageCount, colorSwapchainImages), "Failed to enumerate Color Swapchain Images.");
-//
-//            uint32_t depthSwapchainImageCount = 0;
-//            OPENVR_CHECK(xrEnumerateSwapchainImages(depthSwapchainInfo.swapchain, 0, &depthSwapchainImageCount, nullptr), "Failed to enumerate Depth Swapchain Images.");
-//            XrSwapchainImageBaseHeader *depthSwapchainImages = m_graphicsAPI->AllocateSwapchainImageData(depthSwapchainInfo.swapchain, GraphicsAPI::SwapchainType::DEPTH, depthSwapchainImageCount);
-//            OPENVR_CHECK(xrEnumerateSwapchainImages(depthSwapchainInfo.swapchain, depthSwapchainImageCount, &depthSwapchainImageCount, depthSwapchainImages), "Failed to enumerate Depth Swapchain Images.");
-//
-//            for (uint32_t j = 0; j < colorSwapchainImageCount; j++) {
-//                GraphicsAPI::ImageViewCreateInfo imageViewCI;
-//                imageViewCI.image = m_graphicsAPI->GetSwapchainImage(colorSwapchainInfo.swapchain, j);
-//                imageViewCI.type = GraphicsAPI::ImageViewCreateInfo::Type::RTV;
-//                imageViewCI.view = GraphicsAPI::ImageViewCreateInfo::View::TYPE_2D;
-//                imageViewCI.format = colorSwapchainInfo.swapchainFormat;
-//                imageViewCI.aspect = GraphicsAPI::ImageViewCreateInfo::Aspect::COLOR_BIT;
-//                imageViewCI.baseMipLevel = 0;
-//                imageViewCI.levelCount = 1;
-//                imageViewCI.baseArrayLayer = 0;
-//                imageViewCI.layerCount = 1;
-//                colorSwapchainInfo.imageViews.push_back(m_graphicsAPI->CreateImageView(imageViewCI));
-//            }
-//            for (uint32_t j = 0; j < depthSwapchainImageCount; j++) {
-//                GraphicsAPI::ImageViewCreateInfo imageViewCI;
-//                imageViewCI.image = m_graphicsAPI->GetSwapchainImage(depthSwapchainInfo.swapchain, j);
-//                imageViewCI.type = GraphicsAPI::ImageViewCreateInfo::Type::DSV;
-//                imageViewCI.view = GraphicsAPI::ImageViewCreateInfo::View::TYPE_2D;
-//                imageViewCI.format = depthSwapchainInfo.swapchainFormat;
-//                imageViewCI.aspect = GraphicsAPI::ImageViewCreateInfo::Aspect::DEPTH_BIT;
-//                imageViewCI.baseMipLevel = 0;
-//                imageViewCI.levelCount = 1;
-//                imageViewCI.baseArrayLayer = 0;
-//                imageViewCI.layerCount = 1;
-//                depthSwapchainInfo.imageViews.push_back(m_graphicsAPI->CreateImageView(imageViewCI));
-//            }
-//        }
-//    }
-//
-//    void DestroySwapchains()
-//    {
-//        for (size_t i = 0; i < m_viewConfigurationViews.size(); i++) {
-//            SwapchainInfo &colorSwapchainInfo = m_colorSwapchainInfos[i];
-//            SwapchainInfo &depthSwapchainInfo = m_depthSwapchainInfos[i];
-//
-//            for (void *&imageView : colorSwapchainInfo.imageViews) {
-//                m_graphicsAPI->DestroyImageView(imageView);
-//            }
-//            for (void *&imageView : depthSwapchainInfo.imageViews) {
-//                m_graphicsAPI->DestroyImageView(imageView);
-//            }
-//
-//            m_graphicsAPI->FreeSwapchainImageData(colorSwapchainInfo.swapchain);
-//            m_graphicsAPI->FreeSwapchainImageData(depthSwapchainInfo.swapchain);
-//
-//            OPENVR_CHECK(xrDestroySwapchain(colorSwapchainInfo.swapchain), "Failed to destroy Color Swapchain");
-//            OPENVR_CHECK(xrDestroySwapchain(depthSwapchainInfo.swapchain), "Failed to destroy Depth Swapchain");
-//        }
-//    }
-//
-//    void GetEnvironmentBlendModes()
-//    {
-//        uint32_t environmentBlendModeCount = 0;
-//        OPENVR_CHECK(xrEnumerateEnvironmentBlendModes(vrInstance.get(), m_systemID, m_viewConfiguration, 0, &environmentBlendModeCount, nullptr), "Failed to enumerate EnvironmentBlend Modes.");
-//        m_environmentBlendModes.resize(environmentBlendModeCount);
-//        OPENVR_CHECK(xrEnumerateEnvironmentBlendModes(vrInstance.get(), m_systemID, m_viewConfiguration, environmentBlendModeCount, &environmentBlendModeCount, m_environmentBlendModes.data()), "Failed to enumerate EnvironmentBlend Modes.");
-//
-//        for (const XrEnvironmentBlendMode &environmentBlendMode : m_applicationEnvironmentBlendModes) {
-//            if (std::find(m_environmentBlendModes.begin(), m_environmentBlendModes.end(), environmentBlendMode) != m_environmentBlendModes.end()) {
-//                m_environmentBlendMode = environmentBlendMode;
-//                break;
-//            }
-//        }
-//        if (m_environmentBlendMode == XR_ENVIRONMENT_BLEND_MODE_MAX_ENUM) {
-//            XR_TUT_LOG_ERROR("Failed to find a compatible blend mode. Defaulting to XR_ENVIRONMENT_BLEND_MODE_OPAQUE.");
-//            m_environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-//        }
-//    }
-//    void CreateReferenceSpace()
-//    {
-//        XrReferenceSpaceCreateInfo referenceSpaceCI{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
-//        referenceSpaceCI.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
-//        referenceSpaceCI.poseInReferenceSpace = {{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f}};
-//        OPENVR_CHECK(xrCreateReferenceSpace(m_session, &referenceSpaceCI, &m_localSpace), "Failed to create ReferenceSpace.");
-//    }
-//    void DestroyReferenceSpace()
-//    {
-//        OPENVR_CHECK(xrDestroySpace(m_localSpace), "Failed to destroy Space.")
-//    }
-//    void RenderFrame()
-//    {
-//        XrFrameState frameState{XR_TYPE_FRAME_STATE};
-//        XrFrameWaitInfo frameWaitInfo{XR_TYPE_FRAME_WAIT_INFO};
-//        OPENVR_CHECK(xrWaitFrame(m_session, &frameWaitInfo, &frameState), "Failed to wait for XR Frame.");
-//
-//        XrFrameBeginInfo frameBeginInfo{XR_TYPE_FRAME_BEGIN_INFO};
-//        OPENVR_CHECK(xrBeginFrame(m_session, &frameBeginInfo), "Failed to begin the XR Frame.");
-//
-//        RenderLayerInfo renderLayerInfo{};
-//        renderLayerInfo.predictedDisplayTime = frameState.predictedDisplayTime;
-//
-//        float dt = 1.0f / 72.0f;
-//        if (m_lastPredictedDisplayTime != 0) {
-//            XrTime delta = frameState.predictedDisplayTime - m_lastPredictedDisplayTime;
-//            dt = (float)delta * 1e-9f;
-//            if (dt <= 0.0f || dt > 1.0f) {
-//                dt = 1.0f / 72.0f;
-//            }
-//        }
-//        m_lastPredictedDisplayTime = frameState.predictedDisplayTime;
-//
-//        bool sessionActive =
-//                (m_sessionState == XR_SESSION_STATE_SYNCHRONIZED ||
-//                 m_sessionState == XR_SESSION_STATE_VISIBLE ||
-//                 m_sessionState == XR_SESSION_STATE_FOCUSED);
-//
-//        std::vector<const XrCompositionLayerBaseHeader*> layers;
-//        XrCompositionLayerPassthroughFB ptLayer{XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB};
-//        if (sessionActive && frameState.shouldRender) {
-//            PollActions(frameState.predictedDisplayTime);
-//
-//            UpdateSticks(dt);
-//            UpdateDrumHits(dt);
-//
-//            BlockInteraction();
-//
-//            bool rendered = RenderLayer(renderLayerInfo);
-//
-//            if (m_passthroughLayer != XR_NULL_HANDLE) {
-//                ptLayer.next        = nullptr;
-//                ptLayer.flags       = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-//                ptLayer.space       = XR_NULL_HANDLE;
-//                ptLayer.layerHandle = m_passthroughLayer;
-//
-//                layers.push_back(
-//                        reinterpret_cast<const XrCompositionLayerBaseHeader*>(&ptLayer)
-//                );
-//            }
-//
-//            if (rendered) {
-//                layers.push_back(
-//                        reinterpret_cast<const XrCompositionLayerBaseHeader*>(&renderLayerInfo.layerProjection)
-//                );
-//            }
-//        }
-//
-//        XrFrameEndInfo frameEndInfo{XR_TYPE_FRAME_END_INFO};
-//        frameEndInfo.displayTime = frameState.predictedDisplayTime;
-//        frameEndInfo.environmentBlendMode = m_environmentBlendMode;
-//        frameEndInfo.layerCount = static_cast<uint32_t>(layers.size());
-//        frameEndInfo.layers     = layers.empty() ? nullptr : layers.data();
-//
-//        OPENVR_CHECK(xrEndFrame(m_session, &frameEndInfo), "Failed to end the XR Frame.");
-//    }
-//
-//    bool RenderLayer(RenderLayerInfo& renderLayerInfo)
-//    {
-//        std::vector<XrView> views(m_viewConfigurationViews.size(), {XR_TYPE_VIEW});
-//
-//        XrViewState viewState{XR_TYPE_VIEW_STATE};
-//        XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
-//        viewLocateInfo.viewConfigurationType = m_viewConfiguration;
-//        viewLocateInfo.displayTime = renderLayerInfo.predictedDisplayTime;
-//        viewLocateInfo.space = m_localSpace;
-//        uint32_t viewCount = 0;
-//        XrResult resulty = xrLocateViews(m_session, &viewLocateInfo, &viewState, static_cast<uint32_t>(views.size()), &viewCount, views.data());
-//        if (resulty != XR_SUCCESS) {
-//            XR_TUT_LOG("Failed to locate Views.");
-//            return false;
-//        }
-//
-//        renderLayerInfo.layerProjectionViews.resize(viewCount, {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW});
-//        renderLayerInfo.layerDepthInfos.resize(viewCount, {XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR});
-//        for (uint32_t i = 0; i < viewCount; i++) {
-//            SwapchainInfo &colorSwapchainInfo = m_colorSwapchainInfos[i];
-//            SwapchainInfo &depthSwapchainInfo = m_depthSwapchainInfos[i];
-//
-//            uint32_t colorImageIndex = 0;
-//            uint32_t depthImageIndex = 0;
-//            XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-//            OPENVR_CHECK(xrAcquireSwapchainImage(colorSwapchainInfo.swapchain, &acquireInfo, &colorImageIndex), "Failed to acquire Image from the Color Swapchian");
-//            OPENVR_CHECK(xrAcquireSwapchainImage(depthSwapchainInfo.swapchain, &acquireInfo, &depthImageIndex), "Failed to acquire Image from the Depth Swapchian");
-//            XrSwapchainImageWaitInfo waitInfo = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
-//            waitInfo.timeout = XR_INFINITE_DURATION;
-//            OPENVR_CHECK(xrWaitSwapchainImage(colorSwapchainInfo.swapchain, &waitInfo), "Failed to wait for Image from the Color Swapchain");
-//            OPENVR_CHECK(xrWaitSwapchainImage(depthSwapchainInfo.swapchain, &waitInfo), "Failed to wait for Image from the Depth Swapchain");
-//
-//            const uint32_t &width = m_viewConfigurationViews[i].recommendedImageRectWidth;
-//            const uint32_t &height = m_viewConfigurationViews[i].recommendedImageRectHeight;
-//            GraphicsAPI::Viewport viewport = {0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f};
-//            GraphicsAPI::Rect2D scissor = {{(int32_t)0, (int32_t)0}, {width, height}};
-//            float nearZ = 0.05f;
-//            float farZ = 100.0f;
-//
-//            renderLayerInfo.layerProjectionViews[i] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
-//            renderLayerInfo.layerProjectionViews[i].pose = views[i].pose;
-//            renderLayerInfo.layerProjectionViews[i].fov = views[i].fov;
-//            renderLayerInfo.layerProjectionViews[i].subImage.swapchain = colorSwapchainInfo.swapchain;
-//            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.x = 0;
-//            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.y = 0;
-//            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.width = static_cast<int32_t>(width);
-//            renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.height = static_cast<int32_t>(height);
-//            renderLayerInfo.layerProjectionViews[i].subImage.imageArrayIndex = 0;
-//            renderLayerInfo.layerProjectionViews[i].next = &renderLayerInfo.layerDepthInfos[i];
-//
-//            renderLayerInfo.layerDepthInfos[i] = {XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR};
-//            renderLayerInfo.layerDepthInfos[i].subImage.swapchain = depthSwapchainInfo.swapchain;
-//            renderLayerInfo.layerDepthInfos[i].subImage.imageRect.offset.x = 0;
-//            renderLayerInfo.layerDepthInfos[i].subImage.imageRect.offset.y = 0;
-//            renderLayerInfo.layerDepthInfos[i].subImage.imageRect.extent.width = static_cast<int32_t>(width);
-//            renderLayerInfo.layerDepthInfos[i].subImage.imageRect.extent.height = static_cast<int32_t>(height);
-//            renderLayerInfo.layerDepthInfos[i].minDepth = viewport.minDepth;
-//            renderLayerInfo.layerDepthInfos[i].maxDepth = viewport.maxDepth;
-//            renderLayerInfo.layerDepthInfos[i].nearZ = nearZ;
-//            renderLayerInfo.layerDepthInfos[i].farZ = farZ;
-//
-////            m_graphicsAPI->BeginRendering();
-////
-////            m_graphicsAPI->ClearColor(colorSwapchainInfo.imageViews[colorImageIndex], 0.00f, 0.00f, 0.00f, 1.00f);
-////            m_graphicsAPI->ClearDepth(depthSwapchainInfo.imageViews[depthImageIndex], 1.0f);
-////
-////            m_graphicsAPI->SetRenderAttachments(&colorSwapchainInfo.imageViews[colorImageIndex], 1, depthSwapchainInfo.imageViews[depthImageIndex], width, height, m_pipeline);
-////            m_graphicsAPI->SetViewports(&viewport, 1);
-////            m_graphicsAPI->SetScissors(&scissor, 1);
-////
-////            XrMatrix4x4f proj;
-////            XrMatrix4x4f_CreateProjectionFov(&proj, m_apiType, views[i].fov, nearZ, farZ);
-////            XrMatrix4x4f toView;
-////            XrVector3f scale1m{1.0f, 1.0f, 1.0f};
-////            XrMatrix4x4f_CreateTranslationRotationScale(&toView, &views[i].pose.position, &views[i].pose.orientation, &scale1m);
-////            XrMatrix4x4f view;
-////            XrMatrix4x4f_InvertRigidBody(&view, &toView);
-////            XrMatrix4x4f_Multiply(&cameraConstants.viewProj, &proj, &view);
-////
-////            renderCuboidIndex = 0;
-////
-////            RenderDebugDrumsetRaw(m_meshDrumsetMain);
-////            // =====================================================
-////            // DEBUG DRUM: draw ONLY an isolated drumset mesh here
-////            // =====================================================
-//////            {
-//////                XrPosef drumPose{};
-//////                drumPose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
-//////                drumPose.position    = {0.0f, -0.5f, -1.5f}; // tweak as needed
-//////
-//////                XrVector3f drumScale{0.5f, 0.5f, 0.5f};
-//////                RenderDebugDrumset(m_drumDebugMesh, drumPose, drumScale);
-//////            }
-////
-////            // Disable all the other scene rendering while debugging mesh
-////#if 0
-////            // Visualize drums as thin pads
-////            for (int d = 0; d < m_drumCount; ++d) {
-////                const Drum& drum = m_drums[d];
-////
-////                if (!m_drawDrumColliders) {
-////                    continue;
-////                }
-////
-////                XrPosef p{};
-////                p.orientation = {0,0,0,1};
-////                p.position    = drum.center;
-////
-////                XrVector3f scale = { drum.radius, 0.03f, drum.radius };
-////                XrVector3f col   = { 0.2f, 0.8f, 0.2f };
-////
-////                //RenderCuboid(p, scale, col);
-////
-////                if (drum.soundId == SOUND_HIHAT_CLOSED) {
-////                    const float openGap = 0.015f;
-////                    const float closedOverlap = 0.03f;
-////                    float gap = m_hiHatClosed ? -closedOverlap : openGap;
-////
-////                    XrPosef bottomPose = p;
-////                    bottomPose.position.y -= (2.0f * scale.y + gap);
-////
-////                    //RenderCuboid(bottomPose, scale, col);
-////                }
-////            }
-////
-////            {
-////                XrPosef bassPose{};
-////                bassPose.orientation = {0,0,0,1};
-////                bassPose.position = { 0.15f, -0.55f, -0.95f };
-////                XrVector3f bassScale = { 0.45f, 0.35f, 0.18f };
-////                XrVector3f bassColor = { 0.3f, 0.3f, 0.9f };
-////
-////                //RenderCuboid(bassPose, bassScale, bassColor);
-////            }
-////
-////            for (int sIdx = 0; sIdx < 2; ++sIdx) {
-////                Stick& s = m_sticks[sIdx];
-////                if (!s.active) continue;
-////
-////                XrPosef pose = s.pose;
-////                XrVector3f sc = { 0.01f, s.length * 0.5f, 0.01f };
-////                XrVector3f half = Rotate(pose.orientation, {0.0f, sc.y, 0.0f});
-////                pose.position = pose.position + half;
-////
-////                //RenderCuboid(pose, sc, {0.7f, 0.6f, 0.3f});
-////            }
-////
-////            XrPosef kitPose{};
-////            kitPose.orientation = {0,0,0,1};
-////            kitPose.position    = {0.0f, -0.5f, -1.5f};
-////
-////            XrVector3f kitScale = {0.5f, 0.5f, 0.5f};
-////
-////            if (m_meshDrumsetMain.indexBuffer)
-////            {
-////                RenderMesh(m_meshDrumsetMain, kitPose, kitScale);
-////            }
-////
-////            if (m_meshHiHatTop.indexBuffer)
-////            {
-////                XrPosef hiHatPose = kitPose;
-////                const float openOffset = 0.02f;
-////                float t = m_hiHatClosed ? 0.0f : 1.0f;
-////                hiHatPose.position.y += openOffset * t;
-////                //RenderMesh(m_meshHiHatTop, hiHatPose, kitScale);
-////            }
-////
-////            for (int j = 0; j < 2; ++j)
-////            {
-////                const Stick& s = m_sticks[j];
-////                if (!s.active) continue;
-////
-////                if (m_meshDrumstick.indexBuffer)
-////                {
-////                    XrVector3f stickScale = {1.0f, 1.0f, 1.0f};
-////                    //RenderMesh(m_meshDrumstick, s.pose, stickScale);
-////                }
-////                else
-////                {
-////                    XrVector3f sc = {0.02f, s.length, 0.02f};
-////                    //RenderCuboid(s.pose, sc, {0.7f, 0.6f, 0.3f});
-////                }
-////            }
-////
-////            for (int j = 0; j < 2; j++) {
-////                if (!m_handPoseState[j].isActive || (handtracked[j] && handTrackingSystemProperties.supportsHandTracking)) {
-////                    continue;
-////                }
-////
-////                const bool grabbing = m_grabState[j].isActive && m_grabState[j].currentState > 0.0f;
-////                const float squeeze = grabbing ? m_grabState[j].currentState : 0.0f;
-////
-////                XrVector3f baseScale = {0.03f, 0.05f, 0.07f};
-////                XrVector3f scale = baseScale * (1.0f + 0.35f * squeeze);
-////
-////                XrVector3f color = (j == 0) ? XrVector3f{0.2f, 0.6f, 1.0f}
-////                                            : XrVector3f{1.0f, 0.45f, 0.25f};
-////
-////                //RenderCuboid(m_handPose[j], scale, color);
-////            }
-////#endif
-////
-////            m_graphicsAPI->EndRendering();
-//            // --- Rendering code: RAW DRUM DEBUG ONLY ---
-//            m_graphicsAPI->BeginRendering();
-//
-//            // make the clear really obvious while debugging
-//            m_graphicsAPI->ClearColor(colorSwapchainInfo.imageViews[colorImageIndex],
-//                                      0.0f, 0.0f, 0.2f, 1.0f);   // dark blue
-//            m_graphicsAPI->ClearDepth(depthSwapchainInfo.imageViews[depthImageIndex], 1.0f);
-//
-//            // Use *any* pipeline here; attachments don’t care. We’ll set the real pipeline in the draw call.
-//            m_graphicsAPI->SetRenderAttachments(&colorSwapchainInfo.imageViews[colorImageIndex], 1,
-//                                                depthSwapchainInfo.imageViews[depthImageIndex],
-//                                                width, height, m_debugDrumPipeline);
-//            m_graphicsAPI->SetViewports(&viewport, 1);
-//            m_graphicsAPI->SetScissors(&scissor, 1);
-//
-//            // No matrices, no UBOs, no other render calls.
-//            RenderDebugDrumsetRaw(m_drumDebugMesh);
-//
-//            m_graphicsAPI->EndRendering();
-//
-//
-//
-//            XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-//            OPENVR_CHECK(xrReleaseSwapchainImage(colorSwapchainInfo.swapchain, &releaseInfo), "Failed to release Image back to the Color Swapchain");
-//            OPENVR_CHECK(xrReleaseSwapchainImage(depthSwapchainInfo.swapchain, &releaseInfo), "Failed to release Image back to the Depth Swapchain");
-//        }
-//
-//        renderLayerInfo.layerProjection.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_CORRECT_CHROMATIC_ABERRATION_BIT;
-//        renderLayerInfo.layerProjection.space = m_localSpace;
-//        renderLayerInfo.layerProjection.viewCount = static_cast<uint32_t>(renderLayerInfo.layerProjectionViews.size());
-//        renderLayerInfo.layerProjection.views = renderLayerInfo.layerProjectionViews.data();
-//
-//        return true;
-//    }
-//
-//    size_t renderCuboidIndex = 0;
-//    void RenderCuboid(XrPosef pose, XrVector3f scale, XrVector3f color)
-//    {
-//        XrMatrix4x4f_CreateTranslationRotationScale(&cameraConstants.model, &pose.position, &pose.orientation, &scale);
-//
-//        XrMatrix4x4f_Multiply(&cameraConstants.modelViewProj, &cameraConstants.viewProj, &cameraConstants.model);
-//        cameraConstants.color = {color.x, color.y, color.z, 1.0};
-//        size_t offsetCameraUB = sizeof(CameraConstants) * renderCuboidIndex;
-//
-//        m_graphicsAPI->SetPipeline(m_pipeline);
-//
-//        m_graphicsAPI->SetBufferData(m_uniformBuffer_Camera, offsetCameraUB, sizeof(CameraConstants), &cameraConstants);
-//        m_graphicsAPI->SetDescriptor({0, m_uniformBuffer_Camera, GraphicsAPI::DescriptorInfo::Type::BUFFER, GraphicsAPI::DescriptorInfo::Stage::VERTEX, false, offsetCameraUB, sizeof(CameraConstants)});
-//        m_graphicsAPI->SetDescriptor({1, m_uniformBuffer_Normals, GraphicsAPI::DescriptorInfo::Type::BUFFER, GraphicsAPI::DescriptorInfo::Stage::VERTEX, false, 0, sizeof(normals)});
-//
-//        m_graphicsAPI->UpdateDescriptors();
-//
-//        m_graphicsAPI->SetVertexBuffers(&m_vertexBuffer, 1);
-//        m_graphicsAPI->SetIndexBuffer(m_indexBuffer);
-//        m_graphicsAPI->DrawIndexed(36);
-//
-//        renderCuboidIndex++;
-//    }
-//
-//    struct CameraConstants {
-//        XrMatrix4x4f viewProj;
-//        XrMatrix4x4f modelViewProj;
-//        XrMatrix4x4f model;
-//        XrVector4f   color;
-//        XrVector4f   pad1;
-//        XrVector4f   pad2;
-//        XrVector4f   pad3;
-//    };
-//    CameraConstants cameraConstants;
-//    XrVector4f normals[6] = {
-//            {1.00f, 0.00f, 0.00f, 0},
-//            {-1.00f, 0.00f, 0.00f, 0},
-//            {0.00f, 1.00f, 0.00f, 0},
-//            {0.00f, -1.00f, 0.00f, 0},
-//            {0.00f, 0.00f, 1.00f, 0},
-//            {0.00f, 0.0f, -1.00f, 0}};
-//
-//    void RenderMesh(const Mesh& mesh, XrPosef pose, XrVector3f scale)
-//    {
-//        if (!mesh.vertexBuffer || !mesh.indexBuffer || mesh.indexCount <= 0) {
-//            return;
-//        }
-//
-//        XrMatrix4x4f_CreateTranslationRotationScale(
-//                &cameraConstants.model,
-//                &pose.position,
-//                &pose.orientation,
-//                &scale);
-//
-//        XrMatrix4x4f_Multiply(
-//                &cameraConstants.modelViewProj,
-//                &cameraConstants.viewProj,
-//                &cameraConstants.model);
-//
-//        cameraConstants.color = {1.0f, 1.0f, 1.0f, 1.0f};
-//
-//        size_t offsetCameraUB = sizeof(CameraConstants) * renderCuboidIndex;
-//
-//        m_graphicsAPI->SetPipeline(m_meshPipeline);
-//
-//        m_graphicsAPI->SetBufferData(
-//                m_uniformBuffer_Camera,
-//                offsetCameraUB,
-//                sizeof(CameraConstants),
-//                &cameraConstants);
-//
-//        m_graphicsAPI->SetDescriptor({
-//                                             0,
-//                                             m_uniformBuffer_Camera,
-//                                             GraphicsAPI::DescriptorInfo::Type::BUFFER,
-//                                             GraphicsAPI::DescriptorInfo::Stage::VERTEX,
-//                                             false,
-//                                             offsetCameraUB,
-//                                             sizeof(CameraConstants)
-//                                     });
-//
-//        m_graphicsAPI->SetDescriptor({
-//                                             1,
-//                                             m_uniformBuffer_Normals,
-//                                             GraphicsAPI::DescriptorInfo::Type::BUFFER,
-//                                             GraphicsAPI::DescriptorInfo::Stage::VERTEX,
-//                                             false,
-//                                             0,
-//                                             sizeof(normals)
-//                                     });
-//
-//        m_graphicsAPI->UpdateDescriptors();
-//
-//        void* vertexBuffers[1];
-//        vertexBuffers[0] = mesh.vertexBuffer;
-//        m_graphicsAPI->SetVertexBuffers(vertexBuffers, 1);
-//        m_graphicsAPI->SetIndexBuffer(mesh.indexBuffer);
-//        m_graphicsAPI->DrawIndexed(mesh.indexCount);
-//
-//        renderCuboidIndex++;
-//    }
-//
-//    // DEBUG DRUM: minimal rendering path, no UBO indexing, no normals
-//    void RenderDebugDrumset(const Mesh& mesh, XrPosef pose, XrVector3f scale)
-//    {
-//        if (!mesh.vertexBuffer || !mesh.indexBuffer || mesh.indexCount <= 0)
-//            return;
-//
-//        XrMatrix4x4f_CreateTranslationRotationScale(
-//                &cameraConstants.model,
-//                &pose.position,
-//                &pose.orientation,
-//                &scale);
-//
-//        XrMatrix4x4f_Multiply(
-//                &cameraConstants.modelViewProj,
-//                &cameraConstants.viewProj,
-//                &cameraConstants.model);
-//
-//        cameraConstants.color = {1.0f, 1.0f, 1.0f, 1.0f};
-//
-//        size_t offsetCameraUB = 0; // <-- no indexing in debug path
-//
-//        m_graphicsAPI->SetPipeline(m_debugDrumPipeline);
-//
-//        m_graphicsAPI->SetBufferData(
-//                m_uniformBuffer_Camera,
-//                offsetCameraUB,
-//                sizeof(CameraConstants),
-//                &cameraConstants);
-//
-//        m_graphicsAPI->SetDescriptor({
-//                                             0,
-//                                             m_uniformBuffer_Camera,
-//                                             GraphicsAPI::DescriptorInfo::Type::BUFFER,
-//                                             GraphicsAPI::DescriptorInfo::Stage::VERTEX,
-//                                             false,
-//                                             offsetCameraUB,
-//                                             sizeof(CameraConstants)
-//                                     });
-//
-//        m_graphicsAPI->UpdateDescriptors();
-//
-//        void* vbs[1] = { mesh.vertexBuffer };
-//        m_graphicsAPI->SetVertexBuffers(vbs, 1);
-//        m_graphicsAPI->SetIndexBuffer(mesh.indexBuffer);
-//        m_graphicsAPI->DrawIndexed(mesh.indexCount);
-//    }
-//
-//    void DebugDumpDrumBoundsOnce()
-//    {
-//        static bool dumped = false;
-//        if (dumped) return;
-//        dumped = true;
-//
-//        if (m_drumDebugVertices.empty()) {
-//            __android_log_print(ANDROID_LOG_WARN, "VrApp",
-//                                "DebugDumpDrumBoundsOnce: no drum vertices captured");
-//            return;
-//        }
-//
-//        float minX =  1e9f, minY =  1e9f, minZ =  1e9f;
-//        float maxX = -1e9f, maxY = -1e9f, maxZ = -1e9f;
-//
-//        for (size_t i = 0; i + 5 < m_drumDebugVertices.size(); i += 6) {
-//            float x = m_drumDebugVertices[i + 0];
-//            float y = m_drumDebugVertices[i + 1];
-//            float z = m_drumDebugVertices[i + 2];
-//
-//            minX = std::min(minX, x);
-//            minY = std::min(minY, y);
-//            minZ = std::min(minZ, z);
-//            maxX = std::max(maxX, x);
-//            maxY = std::max(maxY, y);
-//            maxZ = std::max(maxZ, z);
-//        }
-//
-//        __android_log_print(ANDROID_LOG_INFO, "VrApp",
-//                            "Drum bounds: min(%.3f, %.3f, %.3f) max(%.3f, %.3f, %.3f)",
-//                            minX, minY, minZ, maxX, maxY, maxZ);
-//    }
-//
-//    void RenderDebugDrumsetRaw(const Mesh& mesh)
-//    {
-//        DebugDumpDrumBoundsOnce();  // <-- add this at the top
-//        if (!mesh.vertexBuffer || !mesh.indexBuffer || mesh.indexCount <= 0) {
-//            __android_log_print(ANDROID_LOG_INFO, "VrApp",
-//                                "RenderDebugDrumsetRaw: INVALID mesh vb=%p ib=%p count=%d",
-//                                mesh.vertexBuffer, mesh.indexBuffer, mesh.indexCount);
-//            return;
-//        }
-//
-////        __android_log_print(ANDROID_LOG_INFO, "VrApp",
-////                            "RenderDebugDrumsetRaw: vb=%p ib=%p count=%d",
-////                            mesh.vertexBuffer, mesh.indexBuffer, mesh.indexCount);
-//
-//        m_graphicsAPI->SetPipeline(m_debugDrumPipeline);
-//
-//        void* vertexBuffers[1];
-//        vertexBuffers[0] = mesh.vertexBuffer;
-//        m_graphicsAPI->SetVertexBuffers(vertexBuffers, 1);
-//        m_graphicsAPI->SetIndexBuffer(mesh.indexBuffer);
-//
-//        m_graphicsAPI->DrawIndexed(mesh.indexCount);
-//    }
-//
-//    void CreateResources()
-//    {
-//        constexpr XrVector4f vertexPositions[] = {
-//                {+0.5f, +0.5f, +0.5f, 1.0f},
-//                {+0.5f, +0.5f, -0.5f, 1.0f},
-//                {+0.5f, -0.5f, +0.5f, 1.0f},
-//                {+0.5f, -0.5f, -0.5f, 1.0f},
-//                {-0.5f, +0.5f, +0.5f, 1.0f},
-//                {-0.5f, +0.5f, -0.5f, 1.0f},
-//                {-0.5f, -0.5f, +0.5f, 1.0f},
-//                {-0.5f, -0.5f, -0.5f, 1.0f}};
-//
-//#define CUBE_FACE(V1, V2, V3, V4, V5, V6) vertexPositions[V1], vertexPositions[V2], vertexPositions[V3], vertexPositions[V4], vertexPositions[V5], vertexPositions[V6],
-//
-//        XrVector4f cubeVertices[] = {
-//                CUBE_FACE(2, 1, 0, 2, 3, 1)
-//                CUBE_FACE(6, 4, 5, 6, 5, 7)
-//                CUBE_FACE(0, 1, 5, 0, 5, 4)
-//                CUBE_FACE(2, 6, 7, 2, 7, 3)
-//                CUBE_FACE(0, 4, 6, 0, 6, 2)
-//                CUBE_FACE(1, 3, 7, 1, 7, 5)
-//        };
-//
-//        uint32_t cubeIndices[36] = {
-//                0, 1, 2, 3, 4, 5,
-//                6, 7, 8, 9, 10, 11,
-//                12, 13, 14, 15, 16, 17,
-//                18, 19, 20, 21, 22, 23,
-//                24, 25, 26, 27, 28, 29,
-//                30, 31, 32, 33, 34, 35,
-//        };
-//
-//      //  m_vertexBuffer = m_graphicsAPI->CreateBuffer({GraphicsAPI::BufferCreateInfo::Type::VERTEX, sizeof(float) * 4, sizeof(cubeVertices), &cubeVertices});
-//     //   m_indexBuffer = m_graphicsAPI->CreateBuffer({GraphicsAPI::BufferCreateInfo::Type::INDEX, sizeof(uint32_t), sizeof(cubeIndices), &cubeIndices});
-//
-//        size_t numberOfCuboids = m_maxBlockCount + 2 + 2;
-//        numberOfCuboids += XR_HAND_JOINT_COUNT_EXT * 2;
-//        m_uniformBuffer_Camera = m_graphicsAPI->CreateBuffer({GraphicsAPI::BufferCreateInfo::Type::UNIFORM, 0, sizeof(CameraConstants) * numberOfCuboids, nullptr});
-//        m_uniformBuffer_Normals = m_graphicsAPI->CreateBuffer({GraphicsAPI::BufferCreateInfo::Type::UNIFORM, 0, sizeof(normals), &normals});
-//
-//        if (m_apiType == OPENGL_ES) {
-//            std::string vertexSource = ReadTextFile("shaders/VertexShader_GLES.glsl", androidApp->activity->assetManager);
-//        //    m_vertexShader = m_graphicsAPI->CreateShader({GraphicsAPI::ShaderCreateInfo::Type::VERTEX, vertexSource.data(), vertexSource.size()});
-//            std::string fragmentSource = ReadTextFile("shaders/PixelShader_GLES.glsl", androidApp->activity->assetManager);
-//     //       m_fragmentShader = m_graphicsAPI->CreateShader({GraphicsAPI::ShaderCreateInfo::Type::FRAGMENT, fragmentSource.data(), fragmentSource.size()});
-//        }
-//
-//        GraphicsAPI::PipelineCreateInfo pipelineCI;
-//        pipelineCI.shaders = {m_vertexShader, m_fragmentShader};
-//        pipelineCI.vertexInputState.attributes = {{0, 0, GraphicsAPI::VertexType::VEC4, 0, "TEXCOORD"}};
-//        pipelineCI.vertexInputState.bindings = {{0, 0, 4 * sizeof(float)}};
-//        pipelineCI.inputAssemblyState = {GraphicsAPI::PrimitiveTopology::TRIANGLE_LIST, false};
-//        pipelineCI.rasterisationState = {false, false, GraphicsAPI::PolygonMode::FILL, GraphicsAPI::CullMode::BACK, GraphicsAPI::FrontFace::COUNTER_CLOCKWISE, false, 0.0f, 0.0f, 0.0f, 1.0f};
-//        pipelineCI.multisampleState = {1, false, 1.0f, 0xFFFFFFFF, false, false};
-//        pipelineCI.depthStencilState = {true, true, GraphicsAPI::CompareOp::LESS_OR_EQUAL, false, false, {}, {}, 0.0f, 1.0f};
-//        pipelineCI.colorBlendState = {false, GraphicsAPI::LogicOp::NO_OP, {{true, GraphicsAPI::BlendFactor::SRC_ALPHA, GraphicsAPI::BlendFactor::ONE_MINUS_SRC_ALPHA, GraphicsAPI::BlendOp::ADD, GraphicsAPI::BlendFactor::ONE, GraphicsAPI::BlendFactor::ZERO, GraphicsAPI::BlendOp::ADD, (GraphicsAPI::ColorComponentBit)15}}, {0.0f, 0.0f, 0.0f, 0.0f}};
-//        pipelineCI.colorFormats = {m_colorSwapchainInfos[0].swapchainFormat};
-//        pipelineCI.depthFormat = m_depthSwapchainInfos[0].swapchainFormat;
-//        pipelineCI.layout = {
-//                {0, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER, GraphicsAPI::DescriptorInfo::Stage::VERTEX},
-//                {1, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER, GraphicsAPI::DescriptorInfo::Stage::VERTEX},
-//                {2, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER, GraphicsAPI::DescriptorInfo::Stage::FRAGMENT}
-//        };
-//       // m_pipeline = m_graphicsAPI->CreatePipeline(pipelineCI);
-//
-//        // --- Mesh shaders (for GLB meshes) + debug shaders ---
-//        if (m_apiType == OPENGL_ES) {
-//            std::string meshVsSrc =
-//                    ReadTextFile("shaders/MeshVertex_GLES.glsl", androidApp->activity->assetManager);
-//          ///  m_meshVertexShader = m_graphicsAPI->CreateShader(
-//                  //  {GraphicsAPI::ShaderCreateInfo::Type::VERTEX,
-//                   // meshVsSrc.data(), meshVsSrc.size()});
-//
-//            std::string meshFsSrc =
-//                    ReadTextFile("shaders/MeshPixel_GLES.glsl", androidApp->activity->assetManager);
-//           // m_meshFragmentShader = m_graphicsAPI->CreateShader(
-//                   // {GraphicsAPI::ShaderCreateInfo::Type::FRAGMENT,
-//                    // meshFsSrc.data(), meshFsSrc.size()});
-//
-////            // DEBUG DRUM: minimal shaders
-////            std::string dbgVsSrc =
-////                    ReadTextFile("shaders/DebugDrumVertex_GLES.glsl", androidApp->activity->assetManager);
-////            m_debugDrumVertexShader = m_graphicsAPI->CreateShader(
-////                    {GraphicsAPI::ShaderCreateInfo::Type::VERTEX,
-////                     dbgVsSrc.data(), dbgVsSrc.size()});
-////
-////            std::string dbgFsSrc =
-////                    ReadTextFile("shaders/DebugDrumFragment_GLES.glsl", androidApp->activity->assetManager);
-////            m_debugDrumFragmentShader = m_graphicsAPI->CreateShader(
-////                    {GraphicsAPI::ShaderCreateInfo::Type::FRAGMENT,
-////                     dbgFsSrc.data(), dbgFsSrc.size()});
-//        }
-//
-////        // --- Mesh pipeline: MUST match [x,y,z,1,u,v] ---
-////        GraphicsAPI::PipelineCreateInfo meshPipeCI = pipelineCI;
-////
-////        meshPipeCI.shaders = {m_meshVertexShader, m_meshFragmentShader};
-////
-////        meshPipeCI.vertexInputState.attributes = {
-////                {0, 0, GraphicsAPI::VertexType::VEC4, 0,                 "POSITION"},
-////                {1, 0, GraphicsAPI::VertexType::VEC2, 4 * sizeof(float), "TEXCOORD"}
-////        };
-////
-////        meshPipeCI.vertexInputState.bindings = {
-////                {0, 0, 6 * sizeof(float)}
-////        };
-////
-////        m_meshPipeline = m_graphicsAPI->CreatePipeline(meshPipeCI);
-//
-//        // DEBUG DRUM: pipeline using the same layout but simpler shaders
-////        GraphicsAPI::PipelineCreateInfo debugPipeCI = meshPipeCI;
-////        debugPipeCI.shaders = { m_debugDrumVertexShader, m_debugDrumFragmentShader };
-////        m_debugDrumPipeline = m_graphicsAPI->CreatePipeline(debugPipeCI);
-//
-//        // Load GLB meshes
-//        //LoadMeshFromGLB("models/drumset_main.glb",       m_meshDrumsetMain);
-//        //LoadMeshFromGLB("models/drumset_hi_hat_top.glb", m_meshHiHatTop);
-//        //LoadMeshFromGLB("models/drumstick.glb",          m_meshDrumstick);
-//
-//        // DEBUG DRUM: isolated copy of the main drum mesh (own VB/IB)
-//        LoadMeshFromGLB("models/drumset_main.glb",       m_drumDebugMesh);
-//
-//        if (m_apiType == OPENGL_ES) {
-//            std::string dbgVsSrc =
-//                    ReadTextFile("shaders/DrumDebugRawVertex_GLES.glsl",
-//                                 androidApp->activity->assetManager);
-//            m_debugDrumVertexShader = m_graphicsAPI->CreateShader(
-//                    { GraphicsAPI::ShaderCreateInfo::Type::VERTEX,
-//                      dbgVsSrc.data(), dbgVsSrc.size() });
-//
-//            std::string dbgFsSrc =
-//                    ReadTextFile("shaders/DrumDebugRawFragment_GLES.glsl",
-//                                 androidApp->activity->assetManager);
-//            m_debugDrumFragmentShader = m_graphicsAPI->CreateShader(
-//                    { GraphicsAPI::ShaderCreateInfo::Type::FRAGMENT,
-//                      dbgFsSrc.data(), dbgFsSrc.size() });
-//        }
-//
-//        GraphicsAPI::PipelineCreateInfo dbgPipe{};
-//
-//        dbgPipe.shaders = { m_debugDrumVertexShader, m_debugDrumFragmentShader };
-//
-//// matches LoadMeshFromGLB vertex format: [x,y,z,1,u,v]
-//        dbgPipe.vertexInputState.attributes = {
-//                { 0, 0, GraphicsAPI::VertexType::VEC4, 0, "POSITION" }
-//        };
-//        dbgPipe.vertexInputState.bindings = {
-//                { 0, 0, 6 * sizeof(float) }
-//        };
-//
-//        dbgPipe.inputAssemblyState = { GraphicsAPI::PrimitiveTopology::TRIANGLE_LIST, false };
-//        dbgPipe.rasterisationState = pipelineCI.rasterisationState;
-//        dbgPipe.rasterisationState.cullMode        = GraphicsAPI::CullMode::NONE;
-//        dbgPipe.multisampleState   = pipelineCI.multisampleState;
-//        dbgPipe.depthStencilState  = pipelineCI.depthStencilState;
-//        dbgPipe.depthStencilState.depthTestEnable  = false;
-//        dbgPipe.depthStencilState.depthWriteEnable = false;
-//        dbgPipe.colorBlendState    = pipelineCI.colorBlendState;
-//        dbgPipe.colorFormats       = { m_colorSwapchainInfos[0].swapchainFormat };
-//        dbgPipe.depthFormat        = m_depthSwapchainInfos[0].swapchainFormat;
-//
-//// *** no descriptors/UBOs for this pipeline ***
-//        dbgPipe.layout.clear();
-//
-//        m_debugDrumPipeline = m_graphicsAPI->CreatePipeline(dbgPipe);
-//
-////        float scale = 0.2f;
-////        XrVector3f center = {0.0f, -0.2f, -0.7f};
-////        for (int i = 0; i < 4; i++) {
-////            float x = scale * (float(i) - 1.5f) + center.x;
-////            for (int j = 0; j < 4; j++) {
-////                float y = scale * (float(j) - 1.5f) + center.y;
-////                for (int k = 0; k < 4; k++) {
-////                    float z = scale * (float(k) - 1.5f) + center.z;
-////                    XrQuaternionf q = {0.0f, 0.0f, 0.0f, 1.0f};
-////                    XrVector3f color = {pseudorandom_distribution(pseudo_random_generator), pseudorandom_distribution(pseudo_random_generator), pseudorandom_distribution(pseudo_random_generator)};
-////                    m_blocks.push_back({{q, {x, y, z}}, {0.095f, 0.095f, 0.095f}, color});
-////                    if (m_blocks.size() > m_maxBlockCount) {
-////                        m_blocks.pop_front();
-////                    }
-////                }
-////            }
-////        }
-//
-//        AAssetManager* assetMgr = VrApp::androidApp->activity->assetManager;
-//        if (!m_audioEngine.init(assetMgr,
-//                                "sfx/snare.wav",
-//                                "sfx/hi_tom.wav",
-//                                "sfx/mid_tom.wav",
-//                                "sfx/floor_tom.wav",
-//                                "sfx/closed_hi-hat.wav",
-//                                "sfx/open_hi-hat.wav",
-//                                "sfx/crash.wav",
-//                                "sfx/ride.wav",
-//                                "sfx/bass.wav")) {
-//            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
-//                                "Failed to init AudioEngine with drum samples");
-//        }
-//
-//        InitDrumsAndSticks();
-//    }
-//
-//    void DestroyResources()
-//    {
-//
-//
-//        m_audioEngine.shutdown();
-//
-//
-//
-//
-//        // Destroy box pipeline/shaders/buffers
-//        if (m_pipeline)           m_graphicsAPI->DestroyPipeline(m_pipeline);
-//        if (m_fragmentShader)     m_graphicsAPI->DestroyShader(m_fragmentShader);
-//        if (m_vertexShader)       m_graphicsAPI->DestroyShader(m_vertexShader);
-//        if (m_uniformBuffer_Camera)  m_graphicsAPI->DestroyBuffer(m_uniformBuffer_Camera);
-//        if (m_uniformBuffer_Normals) m_graphicsAPI->DestroyBuffer(m_uniformBuffer_Normals);
-//        if (m_indexBuffer)        m_graphicsAPI->DestroyBuffer(m_indexBuffer);
-//        if (m_vertexBuffer)       m_graphicsAPI->DestroyBuffer(m_vertexBuffer);
-//
-//        // Destroy mesh pipelines/shaders
-//        if (m_meshPipeline)            m_graphicsAPI->DestroyPipeline(m_meshPipeline);
-//        if (m_meshVertexShader)        m_graphicsAPI->DestroyShader(m_meshVertexShader);
-//        if (m_meshFragmentShader)      m_graphicsAPI->DestroyShader(m_meshFragmentShader);
-//
-//        // Destroy debug drum pipeline/shaders
-//        if (m_debugDrumPipeline)       m_graphicsAPI->DestroyPipeline(m_debugDrumPipeline);
-//        if (m_debugDrumVertexShader)   m_graphicsAPI->DestroyShader(m_debugDrumVertexShader);
-//        if (m_debugDrumFragmentShader) m_graphicsAPI->DestroyShader(m_debugDrumFragmentShader);
-//
-//        // Destroy GLB mesh buffers
-//        auto destroyMesh = [this](Mesh& m){
-//            if (m.vertexBuffer) { m_graphicsAPI->DestroyBuffer(m.vertexBuffer); m.vertexBuffer = nullptr; }
-//            if (m.indexBuffer)  { m_graphicsAPI->DestroyBuffer(m.indexBuffer);  m.indexBuffer  = nullptr; }
-//            m.indexCount = 0;
-//        };
-//        //destroyMesh(m_meshDrumsetMain);
-//        //destroyMesh(m_meshHiHatTop);
-//        //destroyMesh(m_meshDrumstick);
-//        destroyMesh(m_drumDebugMesh);
-//    }
-//
-//    void PollEvents();
-//    void PollActions(XrTime predictedTime) {
-//        XrActiveActionSet activeActionSet{};
-//        activeActionSet.actionSet = m_actionSet;
-//        activeActionSet.subactionPath = XR_NULL_PATH;
-//        XrActionsSyncInfo actionsSyncInfo{XR_TYPE_ACTIONS_SYNC_INFO};
-//        actionsSyncInfo.countActiveActionSets = 1;
-//        actionsSyncInfo.activeActionSets = &activeActionSet;
-//        OPENVR_CHECK(xrSyncActions(m_session, &actionsSyncInfo), "Failed to sync Actions.");
-//
-//        XrActionStateGetInfo actionStateGetInfo{XR_TYPE_ACTION_STATE_GET_INFO};
-//        actionStateGetInfo.action = m_palmPoseAction;
-//
-//        for (int i = 0; i < 2; i++) {
-//            actionStateGetInfo.subactionPath = m_handPaths[i];
-//            OPENVR_CHECK(xrGetActionStatePose(m_session, &actionStateGetInfo, &m_handPoseState[i]), "Failed to get Pose State.");
-//            if (m_handPoseState[i].isActive) {
-//                XrSpaceLocation spaceLocation{XR_TYPE_SPACE_LOCATION};
-//                XrResult res = xrLocateSpace(m_handPoseSpace[i], m_localSpace, predictedTime, &spaceLocation);
-//                if (XR_UNQUALIFIED_SUCCESS(res) &&
-//                    (spaceLocation.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0 &&
-//                    (spaceLocation.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0) {
-//                    m_handPose[i] = spaceLocation.pose;
-//                } else {
-//                    m_handPoseState[i].isActive = false;
-//                }
-//            }
-//        }
-//
-//        for (int i = 0; i < 2; i++) {
-//            actionStateGetInfo.action = m_grabCubeAction;
-//            actionStateGetInfo.subactionPath = m_handPaths[i];
-//            OPENVR_CHECK(xrGetActionStateFloat(m_session, &actionStateGetInfo, &m_grabState[i]), "Failed to get Float State of Grab Cube action.");
-//        }
-//
-//        actionStateGetInfo.action        = m_kickButtonAction;
-//        actionStateGetInfo.subactionPath = XR_NULL_PATH;
-//        OPENVR_CHECK(xrGetActionStateBoolean(m_session,
-//                                             &actionStateGetInfo,
-//                                             &m_kickStateButton),
-//                     "Failed to get State of kick button");
-//
-//        actionStateGetInfo.action        = m_kickTriggerAction;
-//        OPENVR_CHECK(xrGetActionStateFloat(m_session,
-//                                           &actionStateGetInfo,
-//                                           &m_kickStateTrigger),
-//                     "Failed to get State of kick trigger");
-//
-//        actionStateGetInfo.action        = m_hiHatButtonAction;
-//        OPENVR_CHECK(xrGetActionStateBoolean(m_session,
-//                                             &actionStateGetInfo,
-//                                             &m_hiHatPedalStateButton),
-//                     "Failed to get State of hihat button");
-//
-//        actionStateGetInfo.action        = m_hiHatTriggerAction;
-//        OPENVR_CHECK(xrGetActionStateFloat(m_session,
-//                                           &actionStateGetInfo,
-//                                           &m_hiHatPedalStateTrigger),
-//                     "Failed to get State of hihat trigger");
-//
-//        for (int i = 0; i < 2; i++) {
-//            m_buzz[i] *= 0.5f;
-//            if (m_buzz[i] < 0.01f)
-//                m_buzz[i] = 0.0f;
-//            XrHapticVibration vibration{XR_TYPE_HAPTIC_VIBRATION};
-//            vibration.amplitude = m_buzz[i];
-//            vibration.duration = XR_MIN_HAPTIC_DURATION;
-//            vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
-//
-//            XrHapticActionInfo hapticActionInfo{XR_TYPE_HAPTIC_ACTION_INFO};
-//            hapticActionInfo.action = m_buzzAction;
-//            hapticActionInfo.subactionPath = m_handPaths[i];
-//            OPENVR_CHECK(xrApplyHapticFeedback(m_session, &hapticActionInfo, (XrHapticBaseHeader *)&vibration), "Failed to apply haptic feedback.");
-//        }
-//
-//        const float triggerThreshold = 0.5f;
-//
-//        bool kickPressedFromButton =
-//                m_kickStateButton.isActive &&
-//                m_kickStateButton.changedSinceLastSync &&
-//                m_kickStateButton.currentState;
-//
-//        bool kickPressedFromTrigger =
-//                m_kickStateTrigger.isActive &&
-//                m_kickStateTrigger.changedSinceLastSync &&
-//                (m_kickStateTrigger.currentState > triggerThreshold);
-//
-//        static bool canPlayKickAgain{true};
-//        static float previousTriggerVal{0.f};
-//        if (m_kickStateTrigger.currentState <= triggerThreshold && previousTriggerVal > m_kickStateTrigger.currentState)
-//        {
-//            canPlayKickAgain = true;
-//        }
-//
-//        bool kickPressed = kickPressedFromButton || kickPressedFromTrigger;
-//
-//        if (kickPressed && canPlayKickAgain) {
-//            m_audioEngine.playDrumSound(SOUND_BASS);
-//            canPlayKickAgain = false;
-//        }
-//
-//        bool hiHatHeldByButton  =
-//                m_hiHatPedalStateButton.isActive &&
-//                m_hiHatPedalStateButton.currentState;
-//
-//        bool hiHatHeldByTrigger =
-//                m_hiHatPedalStateTrigger.isActive &&
-//                (m_hiHatPedalStateTrigger.currentState > triggerThreshold);
-//
-//        m_hiHatClosed = hiHatHeldByButton || hiHatHeldByTrigger;
-//        previousTriggerVal = m_kickStateTrigger.currentState;
-//    }
-//
-//    static XrVector3f FixPosition(XrVector3f pos) {
-//        int x = int(std::nearbyint(pos.x * 10.f));
-//        int y = int(std::nearbyint(pos.y * 10.f));
-//        int z = int(std::nearbyint(pos.z * 10.f));
-//        pos.x = float(x) / 10.f;
-//        pos.y = float(y) / 10.f;
-//        pos.z = float(z) / 10.f;
-//        return pos;
-//    }
-//    void BlockInteraction() {
-//        for (int i = 0; i < 2; i++) {
-//            float nearest = 1.0f;
-//            if (m_grabbedBlock[i] == -1) {
-//                m_nearBlock[i] = -1;
-//                if (m_handPoseState[i].isActive) {
-//                    for (int j = 0; j < (int)m_blocks.size(); j++) {
-//                        auto block = m_blocks[j];
-//                        XrVector3f diff = block.pose.position - m_handPose[i].position;
-//                        float distance = std::max(fabs(diff.x), std::max(fabs(diff.y), fabs(diff.z)));
-//                        if (distance < 0.05f && distance < nearest) {
-//                            m_nearBlock[i] = j;
-//                            nearest = distance;
-//                        }
-//                    }
-//                }
-//                if (m_nearBlock[i] != -1) {
-//                    if (m_grabState[i].isActive && m_grabState[i].currentState > 0.5f) {
-//                        m_grabbedBlock[i] = m_nearBlock[i];
-//                        m_buzz[i] = 1.0f;
-//                    } else if (m_changeColorState[i].isActive == XR_TRUE && m_changeColorState[i].currentState == XR_FALSE && m_changeColorState[i].changedSinceLastSync == XR_TRUE) {
-//                        auto &thisBlock = m_blocks[m_nearBlock[i]];
-//                        XrVector3f color = {pseudorandom_distribution(pseudo_random_generator), pseudorandom_distribution(pseudo_random_generator), pseudorandom_distribution(pseudo_random_generator)};
-//                        thisBlock.color = color;
-//                    }
-//                } else {
-//                    if (i == 1 && m_spawnCubeState.isActive == XR_TRUE && m_spawnCubeState.currentState == XR_FALSE && m_spawnCubeState.changedSinceLastSync == XR_TRUE) {
-//                        XrQuaternionf q = {0.0f, 0.0f, 0.0f, 1.0f};
-//                        XrVector3f color = {pseudorandom_distribution(pseudo_random_generator), pseudorandom_distribution(pseudo_random_generator), pseudorandom_distribution(pseudo_random_generator)};
-//                        m_blocks.push_back({{q, FixPosition(m_handPose[i].position)}, {0.095f, 0.095f, 0.095f}, color});
-//                        while ( m_blocks.size() > m_maxBlockCount) {
-//                            m_blocks.pop_front();
-//                        }
-//                    }
-//                }
-//            } else {
-//                m_nearBlock[i] = m_grabbedBlock[i];
-//                if (m_handPoseState[i].isActive)
-//                    m_blocks[m_grabbedBlock[i]].pose.position = m_handPose[i].position;
-//                if (!m_grabState[i].isActive || m_grabState[i].currentState < 0.5f) {
-//                    m_blocks[m_grabbedBlock[i]].pose.position = FixPosition(m_blocks[m_grabbedBlock[i]].pose.position);
-//                    m_grabbedBlock[i] = -1;
-//                    m_buzz[i] = 0.2f;
-//                }
-//            }
-//        }
-//    }
-//
-//    void PollSystemEvents();
-//
-//};
-//
-//void VrApp::PollEvents()
-//{
-//    XrEventDataBuffer eventData{XR_TYPE_EVENT_DATA_BUFFER};
-//    auto XrPollEvents = [&]() -> bool {
-//        eventData = {XR_TYPE_EVENT_DATA_BUFFER};
-//        return xrPollEvent(vrInstance.get(), &eventData) == XR_SUCCESS;
-//    };
-//
-//    while (XrPollEvents()) {
-//        switch (eventData.type) {
-//            case XR_TYPE_EVENT_DATA_EVENTS_LOST: {
-//                XrEventDataEventsLost *eventsLost = reinterpret_cast<XrEventDataEventsLost *>(&eventData);
-//                XR_TUT_LOG("OPENXR: Events Lost: " << eventsLost->lostEventCount);
-//                break;
-//            }
-//            case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING: {
-//                XrEventDataInstanceLossPending *instanceLossPending = reinterpret_cast<XrEventDataInstanceLossPending *>(&eventData);
-//                XR_TUT_LOG("OPENXR: Instance Loss Pending at: " << instanceLossPending->lossTime);
-//                m_sessionRunning = false;
-//                m_applicationRunning = false;
-//                break;
-//            }
-//            case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED: {
-//                XrEventDataInteractionProfileChanged *interactionProfileChanged = reinterpret_cast<XrEventDataInteractionProfileChanged *>(&eventData);
-//                XR_TUT_LOG("OPENXR: Interaction Profile changed for Session: " << interactionProfileChanged->session);
-//                if (interactionProfileChanged->session != m_session) {
-//                    XR_TUT_LOG("XrEventDataInteractionProfileChanged for unknown Session");
-//                    break;
-//                }
-//                RecordCurrentBindings();
-//                break;
-//            }
-//            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
-//                XrEventDataReferenceSpaceChangePending *referenceSpaceChangePending = reinterpret_cast<XrEventDataReferenceSpaceChangePending *>(&eventData);
-//                XR_TUT_LOG("OPENXR: Reference Space Change pending for Session: " << referenceSpaceChangePending->session);
-//                if (referenceSpaceChangePending->session != m_session) {
-//                    XR_TUT_LOG("XrEventDataReferenceSpaceChangePending for unknown Session");
-//                    break;
-//                }
-//                break;
-//            }
-//            case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED: {
-//                XrEventDataSessionStateChanged *sessionStateChanged = reinterpret_cast<XrEventDataSessionStateChanged *>(&eventData);
-//                if (sessionStateChanged->session != m_session) {
-//                    XR_TUT_LOG("XrEventDataSessionStateChanged for unknown Session");
-//                    break;
-//                }
-//
-//                if (sessionStateChanged->state == XR_SESSION_STATE_READY) {
-//                    XrSessionBeginInfo sessionBeginInfo{XR_TYPE_SESSION_BEGIN_INFO};
-//                    sessionBeginInfo.primaryViewConfigurationType = m_viewConfiguration;
-//                    OPENVR_CHECK(xrBeginSession(m_session, &sessionBeginInfo), "Failed to begin Session.");
-//                    m_sessionRunning = true;
-//                }
-//                if (sessionStateChanged->state == XR_SESSION_STATE_STOPPING) {
-//                    OPENVR_CHECK(xrEndSession(m_session), "Failed to end Session.");
-//                    m_sessionRunning = false;
-//                }
-//                if (sessionStateChanged->state == XR_SESSION_STATE_EXITING) {
-//                    m_sessionRunning = false;
-//                    m_applicationRunning = false;
-//                }
-//                if (sessionStateChanged->state == XR_SESSION_STATE_LOSS_PENDING) {
-//                    m_sessionRunning = false;
-//                    m_applicationRunning = false;
-//                }
-//                m_sessionState = sessionStateChanged->state;
-//                break;
-//            }
-//            default: {
-//                break;
-//            }
-//        }
-//    }
-//}
-//
-//android_app *VrApp::androidApp = nullptr;
-//VrApp::AndroidAppState VrApp::androidAppState = {};
-//
-//void VrApp_Main(GraphicsAPI_Type apiType)
-//{
-//    DebugOutput debugOutput;
-//    XR_TUT_LOG("VrApp");
-//    VrApp app(apiType);
-//    app.Run();
-//}
-//
-//void android_main(struct android_app *app)
-//{
-//    JNIEnv *env;
-//    app->activity->vm->AttachCurrentThread(&env, nullptr);
-//    XrInstance m_xrInstance = XR_NULL_HANDLE;
-//    PFN_xrInitializeLoaderKHR xrInitializeLoaderKHR = nullptr;
-//    OPENXR_CHECK(xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR", (PFN_xrVoidFunction *)&xrInitializeLoaderKHR), "Failed to get InstanceProcAddr for xrInitializeLoaderKHR.")
-//    if (!xrInitializeLoaderKHR)
-//    {
-//        return;
-//    }
-//    XrLoaderInitInfoAndroidKHR loaderInitializeInfoAndroid{XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR};
-//    loaderInitializeInfoAndroid.applicationVM = app->activity->vm;
-//    loaderInitializeInfoAndroid.applicationContext = app->activity->clazz;
-//    OPENXR_CHECK(xrInitializeLoaderKHR((XrLoaderInitInfoBaseHeaderKHR *)&loaderInitializeInfoAndroid), "Failed to initialize Loader for Android.");
-//    app->userData = &VrApp::androidAppState;
-//    app->onAppCmd = VrApp::AndroidAppHandleCmd;
-//    VrApp::androidApp = app;
-//    VrApp_Main(OPENGL_ES);
-//}
-//
-//void VrApp::AndroidAppHandleCmd(struct android_app *app, int32_t cmd)
-//{
-//    auto appState = (VrApp::AndroidAppState *)app->userData;
-//    switch (cmd)
-//    {
-//        case APP_CMD_START:
-//        {
-//        }
-//            break;
-//        case APP_CMD_RESUME:
-//        {
-//            appState->resumed = true;
-//        }
-//            break;
-//        case APP_CMD_PAUSE:
-//        {
-//            appState->resumed = false;
-//        }
-//            break;
-//        case APP_CMD_STOP:
-//        {
-//        }
-//            break;
-//        case APP_CMD_DESTROY:
-//        {
-//            appState->nativeWindow = nullptr;
-//        }
-//            break;
-//        case APP_CMD_INIT_WINDOW:
-//        {
-//            appState->nativeWindow = app->window;
-//        }
-//            break;
-//        case APP_CMD_TERM_WINDOW:
-//        {
-//            appState->nativeWindow = nullptr;
-//        }
-//            break;
-//        default:
-//        {}
-//            break;
-//    }
-//}
-//
-//void VrApp::PollSystemEvents()
-//{
-//    if (androidApp->destroyRequested != 0)
-//    {
-//        m_applicationRunning = false;
-//        return;
-//    }
-//    while (true)
-//    {
-//        struct android_poll_source *source = nullptr;
-//        int events = 0;
-//        const int timeoutMilliseconds = (!androidAppState.resumed && !m_sessionRunning && androidApp->destroyRequested == 0) ? -1 : 0;
-//        if (ALooper_pollOnce(timeoutMilliseconds, nullptr, &events, (void**)&source) >= 0)
-//        {
-//            if (source != nullptr)
-//            {
-//                source->process(androidApp, source);
-//            }
-//        }
-//        else
-//        {
-//            break;
-//        }
-//    }
-//}
-//
-//
-//
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
 #include "audio_engine.h"
 #include "vrcore/vr_instance.hpp"
 // include xr linear algebra for XrVector and XrMatrix classes.
@@ -2377,6 +5,8 @@
 
 #define CGLTF_IMPLEMENTATION
 #include "third_party/cgltf.h"
+
+
 
 // Declare some useful operators for vectors:
 XrVector3f operator-(XrVector3f a, XrVector3f b) {
@@ -2468,6 +98,17 @@ XrQuaternionf Mul(const XrQuaternionf& a, const XrQuaternionf& b)
     return r;
 }
 
+XrQuaternionf QuatFromAxisAngle(const XrVector3f& axis, float degrees)
+{
+    float rad  = degrees * 3.14159265f / 180.0f;
+    float half = rad * 0.5f;
+    float s    = sinf(half);
+    float c    = cosf(half);
+
+    XrVector3f n = Normalize(axis);
+    return { n.x * s, n.y * s, n.z * s, c };  // (x,y,z,w)
+}
+
 // Include <algorithm> for std::min and max
 #include <algorithm>
 // A deque is used to track the blocks to draw.
@@ -2487,11 +128,21 @@ PFN_xrLocateHandJointsEXT xrLocateHandJointsEXT = nullptr;
 
 
 
-
-
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_NO_STDIO    // we load from memory, not files
+#include "third_party/stb_image.h"
+#include <GLES3/gl3.h>
 
 class VrApp
 {
+    void* m_drumsetTexture = nullptr;
+    void* m_drumsetSampler = nullptr;  // GL sampler created via GraphicsAPI::CreateSampler
+
+    void* m_controlsTexture  = nullptr;
+    void* m_controlsSampler  = nullptr;
+
+    void* m_currentTexture  = nullptr;
+    void* m_currentSampler  = nullptr;
 
     void* m_meshVertexShader   = nullptr;
     void* m_meshFragmentShader = nullptr;
@@ -2503,6 +154,7 @@ class VrApp
         int   indexCount   = 0;
     };
 
+    Mesh m_meshControlsPanel;
     Mesh m_meshDrumsetMain;
     Mesh m_meshHiHatTop;
     Mesh m_meshDrumstick;
@@ -2571,7 +223,8 @@ class VrApp
     static constexpr int MAX_DRUMS = 8;
 
     struct Drum {
-        XrVector3f center;   // world-space in LOCAL space frame
+        XrVector3f center;   // world-space in LOCAL space fra
+        XrQuaternionf orientation;
         XrVector3f normal;   // usually (0,1,0)
         float      radius;   // trigger radius for hit detection
         int        soundId;  // used later when you play audio
@@ -2592,7 +245,7 @@ class VrApp
     };
 
     Drum  m_drums[MAX_DRUMS];
-    int   m_drumCount = 0;
+    int   m_drumCount = SOUND_COUNT;
 
     Stick m_sticks[2];
 
@@ -2733,6 +386,172 @@ public:
     }
 private:
 
+    void LoadControlsTexture()
+    {
+        AAssetManager* assetMgr = VrApp::androidApp->activity->assetManager;
+        AAsset* asset = AAssetManager_open(
+                assetMgr,
+                "textures/placard.jpg",
+                AASSET_MODE_BUFFER);
+        if (!asset) { /* log + return */ return; }
+
+        const size_t fileSize = AAsset_getLength(asset);
+        if (fileSize == 0) { AAsset_close(asset); return; }
+
+        std::vector<unsigned char> fileData(fileSize);
+        int64_t readBytes = AAsset_read(asset, fileData.data(), fileSize);
+        AAsset_close(asset);
+        if (readBytes != (int64_t)fileSize) return;
+
+        int width=0, height=0, comp=0;
+        stbi_uc* pixels = stbi_load_from_memory(
+                fileData.data(),
+                (int)fileData.size(),
+                &width, &height, &comp,
+                STBI_rgb_alpha);
+        if (!pixels) return;
+
+        GraphicsAPI::ImageCreateInfo imgCI{};
+        imgCI.dimension       = 2;
+        imgCI.width           = (uint32_t)width;
+        imgCI.height          = (uint32_t)height;
+        imgCI.depth           = 1;
+        imgCI.mipLevels       = 1;
+        imgCI.arrayLayers     = 1;
+        imgCI.sampleCount     = 1;
+        imgCI.format          = GL_RGBA8;
+        imgCI.cubemap         = false;
+        imgCI.colorAttachment = false;
+        imgCI.depthAttachment = false;
+        imgCI.sampled         = true;
+
+        m_controlsTexture = m_graphicsAPI->CreateImage(imgCI);
+        if (!m_controlsTexture) { stbi_image_free(pixels); return; }
+
+        GLuint tex = (GLuint)(uint64_t)m_controlsTexture;
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                        width, height,
+                        GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        stbi_image_free(pixels);
+
+        GraphicsAPI::SamplerCreateInfo samp{};
+        samp.magFilter    = GraphicsAPI::SamplerCreateInfo::Filter::LINEAR;
+        samp.minFilter    = GraphicsAPI::SamplerCreateInfo::Filter::LINEAR;
+        samp.mipmapMode   = GraphicsAPI::SamplerCreateInfo::MipmapMode::NOOP;
+        samp.addressModeS = GraphicsAPI::SamplerCreateInfo::AddressMode::CLAMP_TO_EDGE;
+        samp.addressModeT = GraphicsAPI::SamplerCreateInfo::AddressMode::CLAMP_TO_EDGE;
+        samp.addressModeR = GraphicsAPI::SamplerCreateInfo::AddressMode::CLAMP_TO_EDGE;
+
+        m_controlsSampler = m_graphicsAPI->CreateSampler(samp);
+    }
+
+    void LoadDrumsetTexture()
+    {
+        AAssetManager* assetMgr = VrApp::androidApp->activity->assetManager;
+        AAsset* asset = AAssetManager_open(
+                assetMgr,
+                "textures/drumset_main_tex.jpg",
+                AASSET_MODE_BUFFER);
+        if (!asset) {
+            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
+                                "Failed to open drumset texture asset");
+            return;
+        }
+
+        const size_t fileSize = AAsset_getLength(asset);
+        if (fileSize == 0) {
+            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
+                                "Drumset texture is empty");
+            AAsset_close(asset);
+            return;
+        }
+
+        std::vector<unsigned char> fileData(fileSize);
+        int64_t readBytes = AAsset_read(asset, fileData.data(), fileSize);
+        AAsset_close(asset);
+
+        if (readBytes != (int64_t)fileSize) {
+            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
+                                "Failed to read drumset texture (%lld / %zu)",
+                                (long long)readBytes, fileSize);
+            return;
+        }
+
+        int width = 0, height = 0, comp = 0;
+        stbi_uc* pixels = stbi_load_from_memory(
+                fileData.data(),
+                (int)fileData.size(),
+                &width, &height, &comp,
+                STBI_rgb_alpha);  // force RGBA8
+
+        if (!pixels) {
+            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
+                                "stbi_load_from_memory failed for drumset texture: %s",
+                                stbi_failure_reason());
+            return;
+        }
+
+        // --- Create the GL texture via GraphicsAPI ---
+        GraphicsAPI::ImageCreateInfo imgCI{};
+        imgCI.dimension       = 2;
+        imgCI.width           = (uint32_t)width;
+        imgCI.height          = (uint32_t)height;
+        imgCI.depth           = 1;
+        imgCI.mipLevels       = 1;
+        imgCI.arrayLayers     = 1;
+        imgCI.sampleCount     = 1;
+        imgCI.format          = GL_RGBA8;      // simpler / safer on mobile
+        imgCI.cubemap         = false;
+        imgCI.colorAttachment = false;
+        imgCI.depthAttachment = false;
+        imgCI.sampled         = true;
+
+        m_drumsetTexture = m_graphicsAPI->CreateImage(imgCI);
+        if (!m_drumsetTexture) {
+            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
+                                "CreateImage failed for drumset texture");
+            stbi_image_free(pixels);
+            return;
+        }
+
+        // Upload pixels into that GL texture
+        GLuint tex = (GLuint)(uint64_t)m_drumsetTexture;
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexSubImage2D(GL_TEXTURE_2D,
+                        0, 0, 0,
+                        width, height,
+                        GL_RGBA, GL_UNSIGNED_BYTE,
+                        pixels);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        stbi_image_free(pixels);
+
+        // --- Create sampler state ---
+        GraphicsAPI::SamplerCreateInfo samp{};
+        samp.magFilter    = GraphicsAPI::SamplerCreateInfo::Filter::LINEAR;
+        samp.minFilter    = GraphicsAPI::SamplerCreateInfo::Filter::LINEAR;
+        samp.mipmapMode   = GraphicsAPI::SamplerCreateInfo::MipmapMode::NOOP;
+        samp.addressModeS = GraphicsAPI::SamplerCreateInfo::AddressMode::CLAMP_TO_EDGE;
+        samp.addressModeT = GraphicsAPI::SamplerCreateInfo::AddressMode::CLAMP_TO_EDGE;
+        samp.addressModeR = GraphicsAPI::SamplerCreateInfo::AddressMode::CLAMP_TO_EDGE;
+        samp.mipLodBias   = 0.0f;
+        samp.compareEnable = false;
+        samp.compareOp     = GraphicsAPI::CompareOp::ALWAYS;
+        samp.minLod        = 0.0f;
+        samp.maxLod        = 0.0f;
+        samp.borderColor[0] = 0.0f;
+        samp.borderColor[1] = 0.0f;
+        samp.borderColor[2] = 0.0f;
+        samp.borderColor[3] = 1.0f;
+
+        m_drumsetSampler = m_graphicsAPI->CreateSampler(samp);
+        if (!m_drumsetSampler) {
+            __android_log_print(ANDROID_LOG_ERROR, "VrApp",
+                                "CreateSampler failed for drumset texture");
+        }
+    }
 
     bool LoadMeshFromGLB(const char* assetPath, Mesh& outMesh)
     {
@@ -2970,13 +789,20 @@ private:
     {
         m_drumCount = 0;
 
-        auto addDrum = [&](XrVector3f center, float radius, int soundId) {
+        auto addDrum = [&](XrVector3f center,
+                           float      radius,
+                           int        soundId,
+                           XrQuaternionf rot)
+        {
             if (m_drumCount >= MAX_DRUMS) return;
+
             Drum& d = m_drums[m_drumCount++];
-            d.center = center;
-            d.normal = {0.0f, 1.0f, 0.0f}; // flat, facing up
-            d.radius = radius;
-            d.soundId = soundId;
+
+            d.center      = center;
+            d.orientation = rot;
+            d.normal      = Rotate(rot, {0.0f, 1.0f, 0.0f});  // drum head normal
+            d.radius      = radius;
+            d.soundId     = soundId;
         };
 
         // ONE HUGE TEST DRUM:
@@ -2997,63 +823,96 @@ private:
         //   MidTom:{ 0.22f, -0.24f, -0.72f}
         //   Floor: { 0.45f, -0.32f, -0.65f}
 
-        // Apply "closer" for all
+        // Positions
         XrVector3f snarePos = {
-                -0.1f,
-                -0.39f,
-                -0.75f + forwardAll
+                -0.38f,          // a little less left (was -0.38)
+                -0.535f,         // tiny bit higher (was -0.55)
+                -0.65f + forwardAll   // push slightly away from player (was -0.65 + forwardAll)
         };
 
         XrVector3f floorPos = {
-                0.40f,
-                -0.43f,
-                -0.75f + forwardAll
+                0.66f,           // a touch left (was 0.64)
+                -0.65f,          // tiny bit higher (was -0.635)
+                -0.69f + forwardAll   // slightly farther from player (was -0.67 + forwardAll)
         };
 
-        // For toms: closer, then slightly back, plus small side offsets.
         XrVector3f hiTomPos = {
-                0.1f - tomSide,                   // a bit to the LEFT
-                -0.28f,
-                -0.9f + forwardAll - tomBack     // closer, then a little back
+                -0.081f,                          // a bit closer to center (was -0.06)
+                -0.38f,                         // raise just a little (was -0.37)
+                -0.81f + forwardAll - tomBack    // push a bit farther away (was -0.83 + ...)
         };
 
         XrVector3f midTomPos = {
-                0.25f + tomSide,                  // a bit to the RIGHT
-                -0.19f,
-                -0.910f + forwardAll - tomBack
+                0.32f + tomSide,                 // slightly more to the right (was 0.31f + tomSide)
+                -0.38f,                         // tiny lift (was -0.39)
+                -0.8f + forwardAll - tomBack    // a hair farther away (was -0.82 + ...)
         };
 
-        // Hi-hat pad: left of snare, slightly higher
+// Hi-hat: I’d keep your original, maybe 1–2 cm back if it feels too close.
         XrVector3f hiHatPos = {
-                -0.30f,
-                -0.30f,
-                -0.85f + forwardAll - tomBack * 0.5f
+                -0.59f,
+                -0.38f,
+                -0.49f + forwardAll - tomBack * 0.5f   // 2 cm farther away (was -0.46f + ...)
         };
 
-// Crash cymbal: above/forward of hi tom
+// Crash a smidge higher
         XrVector3f crashPos = {
-                0.00f,
-                -0.18f,
-                -1.00f + forwardAll - tomBack
+                -0.5f,
+                -0.09f,                             // up a bit (was -0.10f)
+                -1.05f + forwardAll - tomBack
         };
 
-// Ride cymbal: to the right, above floor tom
+// Ride slightly farther and a hair lower
         XrVector3f ridePos = {
-                0.55f,
-                -0.25f,
-                -0.95f + forwardAll - tomBack * 0.5f
+                0.70f,
+                -0.14f,                              // tiny bit lower (was -0.15f)
+                -0.98f + forwardAll - tomBack * 0.5f // farther away (was -0.94f + ...)
         };
+        // --- Drum orientations (degrees you gave) ---
 
-        // Add the four drums with their radii and soundIds.
-        addDrum(snarePos,  0.28f, SOUND_SNARE);
-        addDrum(hiTomPos,  0.26f, SOUND_HI_TOM);
-        addDrum(midTomPos, 0.27f, SOUND_MID_TOM);
-        addDrum(floorPos,  0.32f, SOUND_FLOOR_TOM);
+        XrQuaternionf qIdentity { 0.0f, 0.0f, 0.0f, 1.0f };
 
-        addDrum(hiHatPos,  0.25f, SOUND_HIHAT_CLOSED);  // hi-hat surface
-        addDrum(crashPos,  0.30f, SOUND_CRASH);
-        addDrum(ridePos,   0.30f, SOUND_RIDE);
+// Hi-hat: still flat
+        XrQuaternionf qHiHat = qIdentity;
 
+// Snare: lean a bit more toward you
+        // Snare: -5° about +X
+        XrQuaternionf qSnare  = QuatFromAxisAngle({1.0f, 0.0f, 0.0f}, 0.0f);
+
+// Hi tom: +22° about +X
+        XrQuaternionf qHiTomX  = QuatFromAxisAngle({1.0f, 0.0f, 0.0f}, 15.f);
+        XrQuaternionf qHiTomZ  = QuatFromAxisAngle({0.0f, 0.0f, 1.0f}, 0.7f);
+        XrQuaternionf qHiTom  = Mul(qHiTomZ, qHiTomX);
+
+// Mid tom: +24° about +X
+        XrQuaternionf qMidTomX = QuatFromAxisAngle({1.0f, 0.0f, 0.0f}, 7.8f);
+        XrQuaternionf qMidTomZ = QuatFromAxisAngle({1.0f, 0.0f, 1.0f}, 8.5f);
+        XrQuaternionf qMidTom = Mul(qMidTomZ, qMidTomX);
+
+// Crash: slightly flatter than before
+        XrQuaternionf qCrash = QuatFromAxisAngle({1,0,0}, 12.0f);   // was 15°
+
+// Hi tom: little more tilt toward you
+
+
+// Ride: a touch more X tilt, slightly less Z roll
+        XrQuaternionf qRideX = QuatFromAxisAngle({1,0,0}, 17.5f);   // was 20°
+        XrQuaternionf qRideZ = QuatFromAxisAngle({0,0,1}, 21.0f);   // was 15°
+        XrQuaternionf qRide  = Mul(qRideZ, qRideX);
+
+// Floor tom: tiny bit more twist
+        XrQuaternionf qFloor = QuatFromAxisAngle({0,0,1}, -2.0f);   // was -1.5°
+
+        // Drums:
+        addDrum(snarePos,  0.31f, SOUND_SNARE,       qSnare);
+        addDrum(hiTomPos,  0.30f, SOUND_HI_TOM,      qHiTom);
+        addDrum(midTomPos, 0.31f, SOUND_MID_TOM,     qMidTom);
+        addDrum(floorPos,  0.38f, SOUND_FLOOR_TOM,   qFloor);
+
+        // Cymbals:
+        addDrum(hiHatPos,  0.30f, SOUND_HIHAT_CLOSED, qHiHat);  // hi-hat surface
+        addDrum(crashPos,  0.42f, SOUND_CRASH,        qCrash);
+        addDrum(ridePos,   0.45f, SOUND_RIDE,         qRide);
         // TWO STICKS: left/right of center, also in front of the head
         for (int i = 0; i < 2; ++i) {
             Stick& s = m_sticks[i];
@@ -3062,7 +921,7 @@ private:
             s.length = 0.35f;
 
 // In *stick space*, the tip is along +Y (long axis of the cuboid)
-            s.tipLocal = {0.0f, s.length * 0.75f, 0.0f};
+            s.tipLocal = {0.0f, s.length * 0.8f, 0.0f};
 
             s.pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
             s.pose.position = {
@@ -3147,21 +1006,26 @@ private:
                     }
                 }
             }
-            // Apply bounce AFTER you’ve aligned the stick to the hand pose
+            // 🔹 NEW: only apply bounce when NOT held
+            if (s.heldBy != -1) {
+                // stick is in a hand → no bounce
+                s.bounceTime = 0.0f;
+                s.bounceDir  = {0.0f, 0.0f, 0.0f};
+                continue;
+            }
+
+            // old bounce code, but now only for free sticks
             if (s.bounceDir.x != 0.0f || s.bounceDir.y != 0.0f || s.bounceDir.z != 0.0f) {
-                const float totalBounce = 0.30f;   // 0.3s = more obvious
-                const float maxAmp      = 0.03f;   // 3cm max offset
+                const float totalBounce = 0.30f;
+                const float maxAmp      = 0.03f;
 
-                // advance time
                 s.bounceTime += dt;
-
                 float tNorm = s.bounceTime / totalBounce;
+
                 if (tNorm >= 1.0f) {
-                    // bounce finished
                     s.bounceTime = 0.0f;
                     s.bounceDir  = {0.0f, 0.0f, 0.0f};
                 } else {
-                    // one-lobe sine: 0 -> 0 -> 0 with peak in the middle
                     float offset = sinf(tNorm * 3.14159265f) * maxAmp;
                     s.pose.position = s.pose.position + s.bounceDir * offset;
                 }
@@ -3828,7 +1692,7 @@ private:
             // Rendering code to clear the color and depth image views.
             m_graphicsAPI->BeginRendering();
 
-            m_graphicsAPI->ClearColor(colorSwapchainInfo.imageViews[colorImageIndex], 0.00f, 0.00f, 0.00f, 1.00f);
+            m_graphicsAPI->ClearColor(colorSwapchainInfo.imageViews[colorImageIndex], 0.06f, 0.65f, 0.95f, 1.00f);
 
             m_graphicsAPI->ClearDepth(depthSwapchainInfo.imageViews[depthImageIndex], 1.0f);
 
@@ -3851,7 +1715,7 @@ private:
 
             renderCuboidIndex = 0;
 // Draw a floor. Scale it by 2 in the X and Z, and 0.1 in the Y,
-       //     RenderCuboid({{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, -m_viewHeightM, 0.0f}}, {2.0f, 0.1f, 2.0f}, {0.4f, 0.5f, 0.5f});
+            RenderCuboid({{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, -m_viewHeightM / 1.1f, 0.0f}}, {5.0f, 0.1f, 5.0f}, {0.4f, 0.5f, 0.5f});
 // Draw a "table".
        //     RenderCuboid({{0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, -m_viewHeightM + 0.9f, -0.7f}}, {1.0f, 0.2f, 1.0f}, {0.6f, 0.6f, 0.4f});
 
@@ -3877,13 +1741,12 @@ private:
             for (int d = 0; d < m_drumCount; ++d) {
                 const Drum& drum = m_drums[d];
 
-
                 if (!m_drawDrumColliders) {
                     continue;
                 }
 
                 XrPosef p{};
-                p.orientation = {0,0,0,1};
+                p.orientation = drum.orientation;   // <-- use per-drum rotation
                 p.position    = drum.center;
 
                 XrVector3f scale = { drum.radius, 0.03f, drum.radius };
@@ -3894,15 +1757,13 @@ private:
 
                 // Special case: hi-hat – draw bottom cymbal as a second cube
                 if (drum.soundId == SOUND_HIHAT_CLOSED) {
-                    // Gap between cymbals when open
-                    const float openGap = 0.015f; // meters
+                    const float openGap       = 0.015f;  // meters
                     const float closedOverlap = 0.03f;
                     float gap = m_hiHatClosed ? -closedOverlap : openGap;
 
                     XrPosef bottomPose = p;
-                    // Put bottom cymbal directly under top one, sharing orientation.
-                    // The vertical distance between top and bottom center =
-                    // 2 * height + gap
+                    // keep same orientation, move "down" in local Y
+                    // (hi-hat is identity so this is unchanged visually)
                     bottomPose.position.y -= (2.0f * scale.y + gap);
 
                     //RenderCuboid(bottomPose, scale, col);
@@ -3925,41 +1786,76 @@ private:
             }
 
 // Visualize sticks as long skinny cuboids
-            for (int sIdx = 0; sIdx < 2; ++sIdx) {
-                Stick& s = m_sticks[sIdx];
-                if (!s.active) continue;
-
-                XrPosef pose = s.pose;
-                XrVector3f sc = { 0.01f, s.length * 0.5f, 0.01f };
-                XrVector3f half = Rotate(pose.orientation, {0.0f, sc.y, 0.0f});
-                pose.position = pose.position + half;
-
-                //RenderCuboid(pose, sc, {0.7f, 0.6f, 0.3f}); // stick color
-            }
+//            for (int sIdx = 0; sIdx < 2; ++sIdx) {
+//                Stick& s = m_sticks[sIdx];
+//                if (!s.active) continue;
+//
+//                XrPosef pose = s.pose;
+//                XrVector3f sc = { 0.01f, s.length * 0.5f, 0.01f };
+//                XrVector3f half = Rotate(pose.orientation, {0.0f, sc.y, 0.0f});
+//                pose.position = pose.position + half;
+//
+//                RenderCuboid(pose, sc, {0.7f, 0.6f, 0.3f}); // stick color
+//            }
 
             // Kit root pose
             XrPosef kitPose{};
-            kitPose.orientation = {0,0,0,1};
-            kitPose.position    = {0.0f, -0.5f, -1.5f}; // tweak as needed
+            kitPose.position    = {0.1f, -1.35f, 0.25f}; // tweak as needed
 
-            XrVector3f kitScale = {0.5f, 0.5f, 0.5f};
+            // rotate +90° about X to stand it up
+            const float angleDeg = 90.0f;
+            const float angleRad = angleDeg * 3.14159265f / 180.0f;
+            const float half     = angleRad * 0.5f;
+            const float s        = sinf(half);
+            const float c        = cosf(half);
 
 
-           // RenderMesh(m_meshDrumsetMain, kitPose, kitScale);
+            kitPose.orientation = {s,0,0,c};
+
+            XrVector3f kitScale = {1.f, 1.f, 1.f};
+
+
+
 
             if (m_meshDrumsetMain.indexBuffer)
             {
+                m_currentTexture = m_drumsetTexture;
+                m_currentSampler = m_drumsetSampler;
                 RenderMesh(m_meshDrumsetMain, kitPose, kitScale);
             }
+
+
 
             if (m_meshHiHatTop.indexBuffer)
             {
                 XrPosef hiHatPose = kitPose;
-                const float openOffset = 0.02f;
+                const float openOffset = 0.006f;
                 float t = m_hiHatClosed ? 0.0f : 1.0f;
+                hiHatPose.position.x += 0.03f;
                 hiHatPose.position.y += openOffset * t;
-               // RenderMesh(m_meshHiHatTop, hiHatPose, kitScale);
+                hiHatPose.position.z -= 0.58f;
+                RenderMesh(m_meshHiHatTop, hiHatPose, kitScale);
             }
+
+
+            // --- Controls placard ---
+            if (m_meshControlsPanel.indexBuffer && m_controlsTexture && m_controlsSampler)
+            {
+                m_currentTexture = m_controlsTexture;
+                m_currentSampler = m_controlsSampler;
+
+                XrPosef panelPose{};
+                panelPose.orientation = {0,0,0,1};
+                panelPose.position = {
+                        0.0f,        // centered between toms
+                        -0.05f,      // slightly below eyes, tweak
+                        -1.1f        // a bit in front
+                };
+
+                XrVector3f panelScale = {1.0f, 1.0f, 1.0f}; // already baked into mesh w/h
+                RenderMesh(m_meshControlsPanel, panelPose, panelScale);
+            }
+
 
 // Sticks
             for (int j = 0; j < 2; ++j)
@@ -3969,14 +1865,14 @@ private:
 
                 if (m_meshDrumstick.indexBuffer)
                 {
-                    XrVector3f stickScale = {1.0f, 1.0f, 1.0f};
-                 //   RenderMesh(m_meshDrumstick, s.pose, stickScale);
+                    XrVector3f stickScale = {0.1f, 0.16f, 0.1f};
+                    RenderMesh(m_meshDrumstick, s.pose, stickScale);
                 }
                 else
                 {
                     // fallback: cuboid stick
                     XrVector3f sc = {0.02f, s.length, 0.02f};
-                  //  RenderCuboid(s.pose, sc, {0.7f, 0.6f, 0.3f});
+                    RenderCuboid(s.pose, sc, {0.7f, 0.6f, 0.3f});
                 }
             }
 
@@ -3996,22 +1892,22 @@ private:
                 XrVector3f color = (j == 0) ? XrVector3f{0.2f, 0.6f, 1.0f}
                                             : XrVector3f{1.0f, 0.45f, 0.25f};
 
-               // RenderCuboid(m_handPose[j], scale, color);
+                 RenderCuboid(m_handPose[j], scale, color);
             }
 
 
 
-//            if (handTrackingSystemProperties.supportsHandTracking) {
-//                for (int j = 0; j < 2; j++) {
-//                    auto hand = m_hands[j];
-//                    XrVector3f hand_color = {1.f, 1.f, 0.f};
-//                    for (int k = 0; k < XR_HAND_JOINT_COUNT_EXT; k++) {
-//                        XrVector3f sc = {1.5f, 1.5f, 2.5f};
-//                        sc = sc * hand.m_jointLocations[k].radius;
-//                        RenderCuboid(hand.m_jointLocations[k].pose, sc, hand_color);
-//                    }
-//                }
-//            }
+            if (handTrackingSystemProperties.supportsHandTracking) {
+                for (int j = 0; j < 2; j++) {
+                    auto hand = m_hands[j];
+                    XrVector3f hand_color = {1.f, 1.f, 0.f};
+                    for (int k = 0; k < XR_HAND_JOINT_COUNT_EXT; k++) {
+                        XrVector3f sc = {1.5f, 1.5f, 2.5f};
+                        sc = sc * hand.m_jointLocations[k].radius;
+                        RenderCuboid(hand.m_jointLocations[k].pose, sc, hand_color);
+                    }
+                }
+            }
 
             m_graphicsAPI->EndRendering();
 
@@ -4093,13 +1989,14 @@ private:
                 &cameraConstants.viewProj,
                 &cameraConstants.model);
 
-        // white tint for now
+        // white tint (texture carries most of the color)
         cameraConstants.color = {1.0f, 1.0f, 1.0f, 1.0f};
 
         size_t offsetCameraUB = sizeof(CameraConstants) * renderCuboidIndex;
 
         m_graphicsAPI->SetPipeline(m_meshPipeline);
 
+        // UBOs
         m_graphicsAPI->SetBufferData(
                 m_uniformBuffer_Camera,
                 offsetCameraUB,
@@ -4126,10 +2023,50 @@ private:
                                              sizeof(normals)
                                      });
 
+        // binding 2: texture + sampler for sampler2D u_DrumTex
+        if (m_drumsetTexture && m_drumsetSampler) {
+            m_graphicsAPI->SetDescriptor({
+                                                 2,
+                                                 m_drumsetTexture,
+                                                 GraphicsAPI::DescriptorInfo::Type::IMAGE,
+                                                 GraphicsAPI::DescriptorInfo::Stage::FRAGMENT,
+                                                 false,
+                                                 0,
+                                                 0
+                                         });
+
+            m_graphicsAPI->SetDescriptor({
+                                                 2,
+                                                 m_drumsetSampler,
+                                                 GraphicsAPI::DescriptorInfo::Type::SAMPLER,
+                                                 GraphicsAPI::DescriptorInfo::Stage::FRAGMENT,
+                                                 false,
+                                                 0,
+                                                 0
+                                         });
+        }
+
+        // --- put your block RIGHT HERE ---
+        // binding 2: texture + sampler for sampler2D u_DrumTex
+        if (m_currentTexture && m_currentSampler) {
+            m_graphicsAPI->SetDescriptor({
+                                                 2,
+                                                 m_currentTexture,
+                                                 GraphicsAPI::DescriptorInfo::Type::IMAGE,
+                                                 GraphicsAPI::DescriptorInfo::Stage::FRAGMENT,
+                                                 false, 0, 0 });
+
+            m_graphicsAPI->SetDescriptor({
+                                                 2,
+                                                 m_currentSampler,
+                                                 GraphicsAPI::DescriptorInfo::Type::SAMPLER,
+                                                 GraphicsAPI::DescriptorInfo::Stage::FRAGMENT,
+                                                 false, 0, 0 });
+        }
+
         m_graphicsAPI->UpdateDescriptors();
 
-        void* vertexBuffers[1];
-        vertexBuffers[0] = mesh.vertexBuffer;
+        void* vertexBuffers[1] = { mesh.vertexBuffer };
         m_graphicsAPI->SetVertexBuffers(vertexBuffers, 1);
         m_graphicsAPI->SetIndexBuffer(mesh.indexBuffer);
         m_graphicsAPI->DrawIndexed(mesh.indexCount);
@@ -4138,11 +2075,49 @@ private:
     }
 
 
+    void CreateControlsPanelMesh()
+    {
+        const float w = 0.6f;  // width in local space
+        const float h = 0.25f; // height
 
+        const float verts[] = {
+                // x,     y,     z,   1,   u, v
+                -0.5f, -0.5f, 0.0f, 1.0f,   0.0f, 1.0f,
+
+                // 1 - bottom-right
+                0.5f, -0.5f, 0.0f, 1.0f,   1.0f, 1.0f,
+
+                // 2 - top-right
+                0.5f,  0.5f, 0.0f, 1.0f,   1.0f, 0.0f,
+
+                // 3 - top-left
+                -0.5f,  0.5f, 0.0f, 1.0f,   0.0f, 0.0f,
+        };
+
+        const uint32_t idx[] = { 0,1,2, 0,2,3 };
+
+        m_meshControlsPanel.vertexBuffer =
+                m_graphicsAPI->CreateBuffer({
+                                                    GraphicsAPI::BufferCreateInfo::Type::VERTEX,
+                                                    sizeof(float) * 6,
+                                                    sizeof(verts),
+                                                    (void*)verts
+                                            });
+
+        m_meshControlsPanel.indexBuffer =
+                m_graphicsAPI->CreateBuffer({
+                                                    GraphicsAPI::BufferCreateInfo::Type::INDEX,
+                                                    sizeof(uint32_t),
+                                                    sizeof(idx),
+                                                    (void*)idx
+                                            });
+
+        m_meshControlsPanel.indexCount = 6;
+    }
 
     void CreateResources()
     {
-        // Vertices for a 1x1x1 meter cube. (Left/Right, Top/Bottom, Front/Back)
+        // ----- cube geometry (unchanged) -----
         constexpr XrVector4f vertexPositions[] = {
                 {+0.5f, +0.5f, +0.5f, 1.0f},
                 {+0.5f, +0.5f, -0.5f, 1.0f},
@@ -4151,9 +2126,12 @@ private:
                 {-0.5f, +0.5f, +0.5f, 1.0f},
                 {-0.5f, +0.5f, -0.5f, 1.0f},
                 {-0.5f, -0.5f, +0.5f, 1.0f},
-                {-0.5f, -0.5f, -0.5f, 1.0f}};
+                {-0.5f, -0.5f, -0.5f, 1.0f}
+        };
 
-#define CUBE_FACE(V1, V2, V3, V4, V5, V6) vertexPositions[V1], vertexPositions[V2], vertexPositions[V3], vertexPositions[V4], vertexPositions[V5], vertexPositions[V6],
+#define CUBE_FACE(V1, V2, V3, V4, V5, V6) \
+    vertexPositions[V1], vertexPositions[V2], vertexPositions[V3], \
+    vertexPositions[V4], vertexPositions[V5], vertexPositions[V6],
 
         XrVector4f cubeVertices[] = {
                 CUBE_FACE(2, 1, 0, 2, 3, 1)  // -X
@@ -4165,105 +2143,172 @@ private:
         };
 
         uint32_t cubeIndices[36] = {
-                0, 1, 2, 3, 4, 5,        // -X
-                6, 7, 8, 9, 10, 11,      // +X
-                12, 13, 14, 15, 16, 17,  // -Y
-                18, 19, 20, 21, 22, 23,  // +Y
-                24, 25, 26, 27, 28, 29,  // -Z
-                30, 31, 32, 33, 34, 35,  // +Z
+                0, 1, 2, 3, 4, 5,
+                6, 7, 8, 9, 10, 11,
+                12, 13, 14, 15, 16, 17,
+                18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28, 29,
+                30, 31, 32, 33, 34, 35
         };
 
-        m_vertexBuffer = m_graphicsAPI->CreateBuffer({GraphicsAPI::BufferCreateInfo::Type::VERTEX, sizeof(float) * 4, sizeof(cubeVertices), &cubeVertices});
+        m_vertexBuffer = m_graphicsAPI->CreateBuffer(
+                { GraphicsAPI::BufferCreateInfo::Type::VERTEX,
+                  sizeof(float) * 4,
+                  sizeof(cubeVertices),
+                  &cubeVertices });
 
-        m_indexBuffer = m_graphicsAPI->CreateBuffer({GraphicsAPI::BufferCreateInfo::Type::INDEX, sizeof(uint32_t), sizeof(cubeIndices), &cubeIndices});
+        m_indexBuffer = m_graphicsAPI->CreateBuffer(
+                { GraphicsAPI::BufferCreateInfo::Type::INDEX,
+                  sizeof(uint32_t),
+                  sizeof(cubeIndices),
+                  &cubeIndices });
 
-        size_t numberOfCuboids = m_maxBlockCount + 2 + 2;
-        numberOfCuboids += XR_HAND_JOINT_COUNT_EXT * 2;
-        m_uniformBuffer_Camera = m_graphicsAPI->CreateBuffer({GraphicsAPI::BufferCreateInfo::Type::UNIFORM, 0, sizeof(CameraConstants) * numberOfCuboids, nullptr});
-        m_uniformBuffer_Normals = m_graphicsAPI->CreateBuffer({GraphicsAPI::BufferCreateInfo::Type::UNIFORM, 0, sizeof(normals), &normals});
+        size_t numberOfCuboids = 7 + XR_HAND_JOINT_COUNT_EXT * 2;
+       // numberOfCuboids += XR_HAND_JOINT_COUNT_EXT * 2;
 
-        // Create Shaders
+        m_uniformBuffer_Camera = m_graphicsAPI->CreateBuffer(
+                { GraphicsAPI::BufferCreateInfo::Type::UNIFORM,
+                  0,
+                  sizeof(CameraConstants) * numberOfCuboids,
+                  nullptr });
+
+        m_uniformBuffer_Normals = m_graphicsAPI->CreateBuffer(
+                { GraphicsAPI::BufferCreateInfo::Type::UNIFORM,
+                  0,
+                  sizeof(normals),
+                  &normals });
+
+        // ----- cube shaders & pipeline -----
         if (m_apiType == OPENGL_ES) {
-            std::string vertexSource = ReadTextFile("shaders/VertexShader_GLES.glsl", androidApp->activity->assetManager);
-            m_vertexShader = m_graphicsAPI->CreateShader({GraphicsAPI::ShaderCreateInfo::Type::VERTEX, vertexSource.data(), vertexSource.size()});
-            std::string fragmentSource = ReadTextFile("shaders/PixelShader_GLES.glsl", androidApp->activity->assetManager);
-            m_fragmentShader = m_graphicsAPI->CreateShader({GraphicsAPI::ShaderCreateInfo::Type::FRAGMENT, fragmentSource.data(), fragmentSource.size()});
+            std::string vertexSource =
+                    ReadTextFile("shaders/VertexShader_GLES.glsl",
+                                 androidApp->activity->assetManager);
+            m_vertexShader = m_graphicsAPI->CreateShader(
+                    { GraphicsAPI::ShaderCreateInfo::Type::VERTEX,
+                      vertexSource.data(), vertexSource.size() });
+
+            std::string fragmentSource =
+                    ReadTextFile("shaders/PixelShader_GLES.glsl",
+                                 androidApp->activity->assetManager);
+            m_fragmentShader = m_graphicsAPI->CreateShader(
+                    { GraphicsAPI::ShaderCreateInfo::Type::FRAGMENT,
+                      fragmentSource.data(), fragmentSource.size() });
         }
 
-        // create pipeline for drawing a solid cube
         GraphicsAPI::PipelineCreateInfo pipelineCI;
-        pipelineCI.shaders = {m_vertexShader, m_fragmentShader};
-        pipelineCI.vertexInputState.attributes = {{0, 0, GraphicsAPI::VertexType::VEC4, 0, "TEXCOORD"}};
-        pipelineCI.vertexInputState.bindings = {{0, 0, 4 * sizeof(float)}};
-        pipelineCI.inputAssemblyState = {GraphicsAPI::PrimitiveTopology::TRIANGLE_LIST, false};
-        pipelineCI.rasterisationState = {false, false, GraphicsAPI::PolygonMode::FILL, GraphicsAPI::CullMode::BACK, GraphicsAPI::FrontFace::COUNTER_CLOCKWISE, false, 0.0f, 0.0f, 0.0f, 1.0f};
-        pipelineCI.multisampleState = {1, false, 1.0f, 0xFFFFFFFF, false, false};
-        pipelineCI.depthStencilState = {true, true, GraphicsAPI::CompareOp::LESS_OR_EQUAL, false, false, {}, {}, 0.0f, 1.0f};
-        pipelineCI.colorBlendState = {false, GraphicsAPI::LogicOp::NO_OP, {{true, GraphicsAPI::BlendFactor::SRC_ALPHA, GraphicsAPI::BlendFactor::ONE_MINUS_SRC_ALPHA, GraphicsAPI::BlendOp::ADD, GraphicsAPI::BlendFactor::ONE, GraphicsAPI::BlendFactor::ZERO, GraphicsAPI::BlendOp::ADD, (GraphicsAPI::ColorComponentBit)15}}, {0.0f, 0.0f, 0.0f, 0.0f}};
-        pipelineCI.colorFormats = {m_colorSwapchainInfos[0].swapchainFormat};
-        pipelineCI.depthFormat = m_depthSwapchainInfos[0].swapchainFormat;
-        pipelineCI.layout = {{0, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER, GraphicsAPI::DescriptorInfo::Stage::VERTEX},
-                             {1, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER, GraphicsAPI::DescriptorInfo::Stage::VERTEX},
-                             {2, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER, GraphicsAPI::DescriptorInfo::Stage::FRAGMENT}};
+        pipelineCI.shaders = { m_vertexShader, m_fragmentShader };
+        pipelineCI.vertexInputState.attributes = {
+                { 0, 0, GraphicsAPI::VertexType::VEC4, 0, "TEXCOORD" }
+        };
+        pipelineCI.vertexInputState.bindings = {
+                { 0, 0, 4 * sizeof(float) }
+        };
+        pipelineCI.inputAssemblyState = {
+                GraphicsAPI::PrimitiveTopology::TRIANGLE_LIST, false };
+        pipelineCI.rasterisationState = {
+                false, false,
+                GraphicsAPI::PolygonMode::FILL,
+                GraphicsAPI::CullMode::BACK,
+                GraphicsAPI::FrontFace::COUNTER_CLOCKWISE,
+                false, 0.0f, 0.0f, 0.0f, 1.0f };
+        pipelineCI.multisampleState = {
+                1, false, 1.0f, 0xFFFFFFFF, false, false };
+        pipelineCI.depthStencilState = {
+                true, true, GraphicsAPI::CompareOp::LESS_OR_EQUAL,
+                false, false, {}, {}, 0.0f, 1.0f };
+        pipelineCI.colorBlendState = {
+                false,
+                GraphicsAPI::LogicOp::NO_OP,
+                { { true,
+                    GraphicsAPI::BlendFactor::SRC_ALPHA,
+                    GraphicsAPI::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                    GraphicsAPI::BlendOp::ADD,
+                    GraphicsAPI::BlendFactor::ONE,
+                    GraphicsAPI::BlendFactor::ZERO,
+                    GraphicsAPI::BlendOp::ADD,
+                    (GraphicsAPI::ColorComponentBit)15 } },
+                { 0.0f, 0.0f, 0.0f, 0.0f } };
+        pipelineCI.colorFormats = { m_colorSwapchainInfos[0].swapchainFormat };
+        pipelineCI.depthFormat  = m_depthSwapchainInfos[0].swapchainFormat;
+        pipelineCI.layout = {
+                { 0, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER,
+                        GraphicsAPI::DescriptorInfo::Stage::VERTEX },
+                { 1, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER,
+                        GraphicsAPI::DescriptorInfo::Stage::VERTEX },
+                { 2, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER,
+                        GraphicsAPI::DescriptorInfo::Stage::FRAGMENT }
+        };
+
         m_pipeline = m_graphicsAPI->CreatePipeline(pipelineCI);
 
-        // --- Mesh shaders (for GLB meshes) ---
+        // ----- mesh shaders for GLB drum kit -----
         if (m_apiType == OPENGL_ES) {
             std::string meshVsSrc =
-                    ReadTextFile("shaders/MeshVertex_GLES.glsl", androidApp->activity->assetManager);
+                    ReadTextFile("shaders/MeshVertex_GLES.glsl",
+                                 androidApp->activity->assetManager);
             m_meshVertexShader = m_graphicsAPI->CreateShader(
-                    {GraphicsAPI::ShaderCreateInfo::Type::VERTEX,
-                     meshVsSrc.data(), meshVsSrc.size()});
+                    { GraphicsAPI::ShaderCreateInfo::Type::VERTEX,
+                      meshVsSrc.data(), meshVsSrc.size() });
 
             std::string meshFsSrc =
-                    ReadTextFile("shaders/MeshPixel_GLES.glsl", androidApp->activity->assetManager);
+                    ReadTextFile("shaders/MeshPixel_GLES.glsl",
+                                 androidApp->activity->assetManager);
             m_meshFragmentShader = m_graphicsAPI->CreateShader(
-                    {GraphicsAPI::ShaderCreateInfo::Type::FRAGMENT,
-                     meshFsSrc.data(), meshFsSrc.size()});
+                    { GraphicsAPI::ShaderCreateInfo::Type::FRAGMENT,
+                      meshFsSrc.data(), meshFsSrc.size() });
         }
 
-// --- Mesh pipeline: MUST match [x,y,z,1,u,v] ---
-        GraphicsAPI::PipelineCreateInfo meshPipeCI = pipelineCI;  // copy cube settings
+        // ----- mesh pipeline (position + UV) -----
+        GraphicsAPI::PipelineCreateInfo meshPipeCI = pipelineCI;
+        meshPipeCI.shaders = { m_meshVertexShader, m_meshFragmentShader };
 
-        meshPipeCI.shaders = {m_meshVertexShader, m_meshFragmentShader};
-
-// *** This part is crucial ***
         meshPipeCI.vertexInputState.attributes = {
-                // attribIndex, bindingIndex,                  type,                         offset,              semanticName
-                {0,            0,             GraphicsAPI::VertexType::VEC4, 0,                   "POSITION"},  // x,y,z,w
-                {1,            0,             GraphicsAPI::VertexType::VEC2, 4 * sizeof(float),   "TEXCOORD"}  // u,v
+                { 0, 0, GraphicsAPI::VertexType::VEC4, 0,                 "POSITION" },
+                { 1, 0, GraphicsAPI::VertexType::VEC2, 4 * sizeof(float), "TEXCOORD" }
+        };
+        meshPipeCI.vertexInputState.bindings = {
+                { 0, 0, 6 * sizeof(float) }
         };
 
-        meshPipeCI.vertexInputState.bindings = {
-                // bindingIndex, offset, stride
-                {0,             0,      6 * sizeof(float)}  // stride = 6 floats
+        meshPipeCI.layout = {
+                { 0, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER,
+                        GraphicsAPI::DescriptorInfo::Stage::VERTEX },
+                { 1, nullptr, GraphicsAPI::DescriptorInfo::Type::BUFFER,
+                        GraphicsAPI::DescriptorInfo::Stage::VERTEX },
+                { 2, nullptr, GraphicsAPI::DescriptorInfo::Type::IMAGE,
+                        GraphicsAPI::DescriptorInfo::Stage::FRAGMENT },
+                { 2, nullptr, GraphicsAPI::DescriptorInfo::Type::SAMPLER,
+                        GraphicsAPI::DescriptorInfo::Stage::FRAGMENT }
         };
 
         m_meshPipeline = m_graphicsAPI->CreatePipeline(meshPipeCI);
 
-       // LoadMeshFromGLB("models/test_cube.glb",       m_meshDrumsetMain);
-
+        // ----- load meshes -----
         LoadMeshFromGLB("models/drumset_main.glb",       m_meshDrumsetMain);
         LoadMeshFromGLB("models/drumset_hi_hat_top.glb", m_meshHiHatTop);
         LoadMeshFromGLB("models/drumstick.glb",          m_meshDrumstick);
 
-        // Create sixty-four cubic blocks, 20cm wide, evenly distributed,
-// and randomly colored.
+        // ----- load drumset texture once -----
+        LoadDrumsetTexture();
+
+        CreateControlsPanelMesh();
+
+        // ----- blocks (unchanged) -----
         float scale = 0.2f;
-// Center the blocks a little way from the origin.
-        XrVector3f center = {0.0f, -0.2f, -0.7f};
+        XrVector3f center = { 0.0f, -0.2f, -0.7f };
         for (int i = 0; i < 4; i++) {
             float x = scale * (float(i) - 1.5f) + center.x;
             for (int j = 0; j < 4; j++) {
                 float y = scale * (float(j) - 1.5f) + center.y;
                 for (int k = 0; k < 4; k++) {
-                    float angleRad = 0;
                     float z = scale * (float(k) - 1.5f) + center.z;
-                    // No rotation
                     XrQuaternionf q = {0.0f, 0.0f, 0.0f, 1.0f};
-                    // A random color.
-                    XrVector3f color = {pseudorandom_distribution(pseudo_random_generator), pseudorandom_distribution(pseudo_random_generator), pseudorandom_distribution(pseudo_random_generator)};
-                    m_blocks.push_back({{q, {x, y, z}}, {0.095f, 0.095f, 0.095f}, color});
+                    XrVector3f color = {
+                            pseudorandom_distribution(pseudo_random_generator),
+                            pseudorandom_distribution(pseudo_random_generator),
+                            pseudorandom_distribution(pseudo_random_generator)
+                    };
+                    m_blocks.push_back({ {q, {x, y, z}}, {0.095f, 0.095f, 0.095f}, color });
                     if (m_blocks.size() > m_maxBlockCount) {
                         m_blocks.pop_front();
                     }
@@ -4286,13 +2331,21 @@ private:
                                 "Failed to init AudioEngine with drum samples");
         }
 
-
         InitDrumsAndSticks();
-
+        LoadControlsTexture();
     }
 
     void DestroyResources()
     {
+
+        if (m_drumsetSampler) {
+            m_graphicsAPI->DestroySampler(m_drumsetSampler);
+            m_drumsetSampler = nullptr;
+        }
+        if (m_drumsetTexture) {
+            m_graphicsAPI->DestroyImage(m_drumsetTexture);
+            m_drumsetTexture = nullptr;
+        }
 
         m_audioEngine.shutdown();
 
@@ -4390,27 +2443,27 @@ private:
             OPENVR_CHECK(xrApplyHapticFeedback(m_session, &hapticActionInfo, (XrHapticBaseHeader *)&vibration), "Failed to apply haptic feedback.");
         }
 
-//        if (handTrackingSystemProperties.supportsHandTracking) {
-//            XrActionStateGetInfo getInfo{XR_TYPE_ACTION_STATE_GET_INFO};
-//            for (int i = 0; i < 2; i++) {
-//                bool Unobstructed = true;
-//                Hand &hand = m_hands[i];
-//                XrHandJointsMotionRangeInfoEXT motionRangeInfo{XR_TYPE_HAND_JOINTS_MOTION_RANGE_INFO_EXT};
-//                motionRangeInfo.handJointsMotionRange = Unobstructed
-//                                                        ? XR_HAND_JOINTS_MOTION_RANGE_UNOBSTRUCTED_EXT
-//                                                        : XR_HAND_JOINTS_MOTION_RANGE_CONFORMING_TO_CONTROLLER_EXT;
-//                XrHandJointsLocateInfoEXT locateInfo{XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT, &motionRangeInfo};
-//                locateInfo.baseSpace = m_localSpace;
-//                locateInfo.time = predictedTime;
-//
-//                XrHandJointLocationsEXT locations{XR_TYPE_HAND_JOINT_LOCATIONS_EXT};
-//                locations.jointCount = (uint32_t)XR_HAND_JOINT_COUNT_EXT;
-//                locations.jointLocations = hand.m_jointLocations;
-//                OPENVR_CHECK(xrLocateHandJointsEXT(hand.m_handTracker, &locateInfo, &locations), "Failed to locate hand joints.");
-//
-//                handtracked[i] = true;
-//            }
-//        }
+        if (handTrackingSystemProperties.supportsHandTracking) {
+            XrActionStateGetInfo getInfo{XR_TYPE_ACTION_STATE_GET_INFO};
+            for (int i = 0; i < 2; i++) {
+                bool Unobstructed = true;
+                Hand &hand = m_hands[i];
+                XrHandJointsMotionRangeInfoEXT motionRangeInfo{XR_TYPE_HAND_JOINTS_MOTION_RANGE_INFO_EXT};
+                motionRangeInfo.handJointsMotionRange = Unobstructed
+                                                        ? XR_HAND_JOINTS_MOTION_RANGE_UNOBSTRUCTED_EXT
+                                                        : XR_HAND_JOINTS_MOTION_RANGE_CONFORMING_TO_CONTROLLER_EXT;
+                XrHandJointsLocateInfoEXT locateInfo{XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT, &motionRangeInfo};
+                locateInfo.baseSpace = m_localSpace;
+                locateInfo.time = predictedTime;
+
+                XrHandJointLocationsEXT locations{XR_TYPE_HAND_JOINT_LOCATIONS_EXT};
+                locations.jointCount = (uint32_t)XR_HAND_JOINT_COUNT_EXT;
+                locations.jointLocations = hand.m_jointLocations;
+                OPENVR_CHECK(xrLocateHandJointsEXT(hand.m_handTracker, &locateInfo, &locations), "Failed to locate hand joints.");
+
+                handtracked[i] = true;
+            }
+        }
 
 // Decide which hand index is left/right.
 // In most OpenXR samples: m_handPaths[0] = left, m_handPaths[1] = right.

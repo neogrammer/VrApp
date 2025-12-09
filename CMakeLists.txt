@@ -59,6 +59,7 @@ set(HEADERS
         "../Common/OpenXRHelper.h"
         "app/src/main/cpp/audio_engine.h"
         "app/src/main/cpp/third_party/cgltf.h"
+        "app/src/main/cpp/third_party/stb_image.h"
 )
 
 set(ES_GLSL_SHADERS "../Shaders/VertexShader_GLES.glsl"
