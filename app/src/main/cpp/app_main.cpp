@@ -1692,7 +1692,9 @@ private:
             // Rendering code to clear the color and depth image views.
             m_graphicsAPI->BeginRendering();
 
-            m_graphicsAPI->ClearColor(colorSwapchainInfo.imageViews[colorImageIndex], 0.06f, 0.65f, 0.95f, 1.00f);
+            // Leave the background alpha at 0 so the passthrough layer behind the
+            // projection layer shows through anywhere we do not draw geometry.
+            m_graphicsAPI->ClearColor(colorSwapchainInfo.imageViews[colorImageIndex], 0.06f, 0.65f, 0.95f, 0.00f);
 
             m_graphicsAPI->ClearDepth(depthSwapchainInfo.imageViews[depthImageIndex], 1.0f);
 
