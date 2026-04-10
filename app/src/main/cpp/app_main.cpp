@@ -2691,9 +2691,9 @@ void android_main(struct android_app *app)
 {
     JNIEnv *env;
     app->activity->vm->AttachCurrentThread(&env, nullptr);
-    XrInstance m_xrInstance = XR_NULL_HANDLE;
+    XrInstance vrInstance = XR_NULL_HANDLE;
     PFN_xrInitializeLoaderKHR xrInitializeLoaderKHR = nullptr;
-    OPENXR_CHECK(xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR", (PFN_xrVoidFunction *)&xrInitializeLoaderKHR), "Failed to get InstanceProcAddr for xrInitializeLoaderKHR.")
+    xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR", (PFN_xrVoidFunction *)&xrInitializeLoaderKHR);
     if (!xrInitializeLoaderKHR)
     {
         return;
@@ -2701,7 +2701,7 @@ void android_main(struct android_app *app)
     XrLoaderInitInfoAndroidKHR loaderInitializeInfoAndroid{XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR};
     loaderInitializeInfoAndroid.applicationVM = app->activity->vm;
     loaderInitializeInfoAndroid.applicationContext = app->activity->clazz;
-    OPENXR_CHECK(xrInitializeLoaderKHR((XrLoaderInitInfoBaseHeaderKHR *)&loaderInitializeInfoAndroid), "Failed to initialize Loader for Android.");
+    xrInitializeLoaderKHR((XrLoaderInitInfoBaseHeaderKHR *)&loaderInitializeInfoAndroid);
     app->userData = &VrApp::androidAppState;
     app->onAppCmd = VrApp::AndroidAppHandleCmd;
     VrApp::androidApp = app;

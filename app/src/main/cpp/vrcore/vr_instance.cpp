@@ -3,7 +3,7 @@
 //
 
 #include "vr_instance.hpp"
-#include <OpenXRHelper.h>
+#include <../../Common/OpenXRHelper.h>
 
 // Function POINTERS for XR_FB_passthrough
 
@@ -23,9 +23,9 @@ void VrInstance::create() {
 
     uint32_t apiLayerCount = 0;
     std::vector<XrApiLayerProperties> apiLayerProperties;
-    OPENVR_CHECKi(xrEnumerateApiLayerProperties(0, &apiLayerCount, nullptr), "Failed to enumerate ApiLayerProperties.");
+    OPENXR_CHECK(xrEnumerateApiLayerProperties(0, &apiLayerCount, nullptr), "Failed to enumerate ApiLayerProperties.");
     apiLayerProperties.resize(apiLayerCount, {XR_TYPE_API_LAYER_PROPERTIES});
-    OPENVR_CHECKi(xrEnumerateApiLayerProperties(apiLayerCount, &apiLayerCount, apiLayerProperties.data()), "Failed to enumerate ApiLayerProperties.");
+    OPENXR_CHECK(xrEnumerateApiLayerProperties(apiLayerCount, &apiLayerCount, apiLayerProperties.data()), "Failed to enumerate ApiLayerProperties.");
     for (auto &requestLayer : apiLayers)
     {
         for (auto &layerProperty : apiLayerProperties)
@@ -44,13 +44,13 @@ void VrInstance::create() {
     }
     uint32_t extensionCount = 0;
     std::vector<XrExtensionProperties> extensionProperties;
-    OPENVR_CHECKi(xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr), "Failed to enumerate InstanceExtensionProperties.");
+    OPENXR_CHECK(xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr), "Failed to enumerate InstanceExtensionProperties.");
     extensionProperties.resize(extensionCount);
     for (auto &e : extensionProperties) {
         e.type = XR_TYPE_EXTENSION_PROPERTIES;
         e.next = nullptr;
     }
-    OPENVR_CHECKi(xrEnumerateInstanceExtensionProperties(nullptr, extensionCount, &extensionCount, extensionProperties.data()), "Failed to enumerate InstanceExtensionProperties.");
+    OPENXR_CHECK(xrEnumerateInstanceExtensionProperties(nullptr, extensionCount, &extensionCount, extensionProperties.data()), "Failed to enumerate InstanceExtensionProperties.");
 
     bool hasPassthrough = false;
     for (auto& e : extensionProperties) {
@@ -94,14 +94,14 @@ void VrInstance::create() {
     instanceCI.enabledExtensionNames = activeExtensions.data();
 
 
-    OPENVR_CHECKi(xrCreateInstance(&instanceCI, &vrInstance), "Failed to create Instance.");
+    OPENXR_CHECK(xrCreateInstance(&instanceCI, &m_xrInstance), "Failed to create Instance.");
     created = true;
 }
 
 
 XrInstance &VrInstance::get()
 {
-    return vrInstance;
+    return m_xrInstance;
 }
 
 bool VrInstance::isCreated()
@@ -111,13 +111,13 @@ bool VrInstance::isCreated()
 
 void VrInstance::destroy()
 {
-    OPENVR_CHECKi(xrDestroyInstance(vrInstance), "Failed to destroy Instance.");
+    OPENXR_CHECK(xrDestroyInstance(m_xrInstance), "Failed to destroy Instance.");
 }
 
 void VrInstance::getProperties()
 {
     XrInstanceProperties instanceProperties{XR_TYPE_INSTANCE_PROPERTIES};
-    OPENVR_CHECKi(xrGetInstanceProperties(vrInstance, &instanceProperties), "Failed to get InstanceProperties.");
+    OPENXR_CHECK(xrGetInstanceProperties(m_xrInstance, &instanceProperties), "Failed to get InstanceProperties.");
 
     XR_TUT_LOG("OpenXR Runtime: " << instanceProperties.runtimeName << " - "
                                   << XR_VERSION_MAJOR(instanceProperties.runtimeVersion) << "."
@@ -138,13 +138,13 @@ void VrInstance::InitPassthrough(XrSession* session_, int flags_, XrPassthroughF
     // 1) Create passthrough object
     XrPassthroughCreateInfoFB ptInfo{XR_TYPE_PASSTHROUGH_CREATE_INFO_FB};
     ptInfo.flags = flags_;
-    OPENVR_CHECKi(xrCreatePassthroughFB_(*session_, &ptInfo, passthrough_),"Unable to create the passthrough");
+    OPENXR_CHECK(xrCreatePassthroughFB_(*session_, &ptInfo, passthrough_),"Unable to create the passthrough");
 
     XrPassthroughLayerCreateInfoFB layerInfo{XR_TYPE_PASSTHROUGH_LAYER_CREATE_INFO_FB};
     layerInfo.passthrough = *passthrough_;
     layerInfo.purpose     = XR_PASSTHROUGH_LAYER_PURPOSE_RECONSTRUCTION_FB;
     layerInfo.flags       = XR_PASSTHROUGH_IS_RUNNING_AT_CREATION_BIT_FB;
-    OPENVR_CHECKi(xrCreatePassthroughLayerFB_(*session_, &layerInfo, passthroughLayer_), "cant create passthrough layer");
+    OPENXR_CHECK(xrCreatePassthroughLayerFB_(*session_, &layerInfo, passthroughLayer_), "cant create passthrough layer");
 
     XR_TUT_LOG("Passthrough initialized OK");
 }

@@ -3,7 +3,7 @@
 //
 #include <DebugOutput.h>
 #include <GraphicsAPI_OpenGL_ES.h>
-#include <OpenXRDebugUtils.h>
+#include "../../Common/OpenXRDebugUtils.h"
 
 #ifndef VRAPP_VR_INSTANCE_HPP
 #define VRAPP_VR_INSTANCE_HPP
@@ -14,7 +14,7 @@ class VrInstance {
 
 
 
-    XrInstance vrInstance = {};
+    XrInstance m_xrInstance = {};
     std::vector<const char *> activeAPILayers = {};
     std::vector<const char *> activeExtensions = {};
     std::vector<std::string> apiLayers = {};
@@ -57,7 +57,7 @@ public:
 //        }
 
         auto load = [&](const char* name, PFN_xrVoidFunction* fn) {
-            XrResult r = xrGetInstanceProcAddr(vrInstance, name, fn);
+            XrResult r = xrGetInstanceProcAddr(m_xrInstance, name, fn);
             if (XR_FAILED(r)) {
                 XR_TUT_LOG_ERROR("xrGetInstanceProcAddr failed");
             }
